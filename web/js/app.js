@@ -236,7 +236,20 @@
       <div class="item-actions">
         <button class="link" data-act="edit" data-id="${it.id}">Edit</button>
         <button class="link danger" data-act="delete" data-id="${it.id}">Hapus</button>
+      </div>
+      <div class="stock-alert" role="alert" hidden>
+        <svg viewBox="0 0 20 20" width="13" height="13" aria-hidden="true"><path d="M10 2.5l8 14H2l8-14z" fill="currentColor"/><path d="M10 8v4.2M10 14.3v.2" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <span>Stok Di Bawah Batas Minimal</span>
       </div>`;
+  }
+
+  /** Alert in the item column when the current End Stock is below the item's Min stock. */
+  function updateStockAlert(tb, it) {
+    const c = it.calc, el = $(".stock-alert", tb);
+    if (!el) return;
+    const below = c.status !== "none" && c.current_stock !== null && c.current_stock < Number(it.min_stock || 0);
+    el.hidden = !below;
+    if (below) el.title = `End Stock ${fmt(c.current_stock)} ${it.uom || ""} < Min ${fmt(it.min_stock)} ${it.uom || ""} (s/d ${MONTHS[(c.last_data_month || 1) - 1]})`;
   }
 
   /** Update computed cells (end stock, totals, KPI) of one item block without touching inputs. */
@@ -254,6 +267,7 @@
     $(".t-incoming", tb).textContent = fmt(c.total_incoming);
     $(".t-end", tb).textContent = fmt(c.end_stock[11]);
     $(".c-kpi", tb).innerHTML = kpiHTML(it);
+    updateStockAlert(tb, it);
   }
 
   function kpiHTML(it) {

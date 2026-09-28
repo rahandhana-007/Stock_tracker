@@ -327,3 +327,14 @@ td.c-kpi { padding: 8px 10px !important; vertical-align: top; }
 .menu-user { padding: 6px 12px 2px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hist-table td, .hist-table th { font-size: 12px; }
 body.locked .app { filter: blur(2px); pointer-events: none; user-select: none; }
+
+/* ---------- alert stok di bawah minimal (kolom item, di bawah Edit/Hapus) ---------- */
+.stock-alert { display: flex; align-items: center; gap: 5px; margin-top: 7px; padding: 4px 8px; border-radius: 6px; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; font-size: 11px; font-weight: 800; letter-spacing: .01em; line-height: 1.2; width: max-content; max-width: 100%; animation: stock-pulse 1.4s ease-in-out infinite; }
+.stock-alert[hidden] { display: none; }
+.stock-alert svg { flex: none; }
+@keyframes stock-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); box-shadow: 0 0 0 0 rgba(220, 38, 38, .45); }
+  50% { opacity: .55; transform: scale(1.03); box-shadow: 0 0 0 5px rgba(220, 38, 38, 0); }
+}
+@media (prefers-reduced-motion: reduce) { .stock-alert { animation: none; } }
+@media print { .stock-alert { animation: none; } }

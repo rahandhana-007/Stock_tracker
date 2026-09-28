@@ -6,6 +6,7 @@
   "scripts": {
     "build": "node scripts/build-config.mjs",
     "test": "node tests/unit.test.mjs",
-    "serve": "npx --yes serve web -l 8080"
+    "serve": "node scripts/serve.mjs",
+    "demo": "node tests/local-server.mjs"
   }
 }
