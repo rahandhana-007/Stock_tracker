@@ -53,7 +53,7 @@ create table if not exists public.import_logs (
 
 insert into public.settings(key, value) values
   ('company', 'PT BRIDGESTONE SUMATRA RUBBER ESTATE'),
-  ('title',   'MASTER FORECAST CONSUMPTION PLAN – STOCK ITEMS')
+  ('title',   'INVENTORY MANAGEMENT SYSTEM – STOCK ITEMS')
 on conflict (key) do nothing;
 
 -- ---------------------------------------------------------------- updated_at otomatis

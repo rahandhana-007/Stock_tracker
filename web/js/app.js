@@ -104,6 +104,10 @@
     }
     $("#appTitle").textContent = titleCase(state.meta.title);
     $("#appCompany").textContent = state.meta.company;
+    $("#loginTitle").textContent = titleCase(state.meta.title);
+    $("#loginCompany").textContent = state.meta.company;
+    localStorage.setItem("fc.title", state.meta.title);
+    localStorage.setItem("fc.company", state.meta.company);
     document.title = `${titleCase(state.meta.title)} – FY ${state.year}`;
 
     const ys = $("#yearSelect");
@@ -967,14 +971,34 @@
     finally { $("#btnLogin").disabled = false; }
   }
 
+  /** Admin users (menu ⋯: rollover, template, pengaturan, riwayat import). Configurable via FC_CONFIG.ADMIN_USERS. */
+  function isAdmin(email) {
+    const admins = ((window.FC_CONFIG && window.FC_CONFIG.ADMIN_USERS) || ["anggit"]).map((u) => String(u).trim().toLowerCase()).filter(Boolean);
+    const name = displayUser(email).toLowerCase();
+    return admins.includes(name) || admins.includes((email || "").toLowerCase());
+  }
+
+  function applyUserUI(session) {
+    const email = session && session.user ? session.user.email : "";
+    const name = displayUser(email);
+    $("#topUser").textContent = name.toUpperCase();
+    $("#btnUser").hidden = !name;
+    $("#btnUser").title = email ? `Login sebagai ${email}` : "Akun";
+    const admin = !!email && isAdmin(email);
+    $("#btnMore").hidden = !admin;                 // menu ⋯ hanya untuk admin
+    if (!admin) $("#moreMenu").hidden = true;
+    document.body.classList.toggle("is-admin", admin);
+  }
+
   async function onSignedIn(session) {
-    $("#userEmail").textContent = session && session.user ? displayUser(session.user.email) : "";
+    applyUserUI(session);
     showLogin(false);
     try { await reload(); } catch (e) { toast("Gagal memuat data: " + e.message, "err"); }
   }
 
   async function logout() {
     await data().auth.signOut();
+    applyUserUI(null);
     state.items = []; state.byId = new Map(); state.meta = null;
     $$("#grid tbody").forEach((tb) => tb.remove());
     showLogin(true);
@@ -1035,20 +1059,29 @@
       catch (e) { showFormError("#loginError", e.message); }
     });
 
-    const menu = $("#moreMenu");
-    $("#btnMore").addEventListener("click", (e) => { e.stopPropagation(); menu.hidden = !menu.hidden; });
-    document.addEventListener("click", () => (menu.hidden = true));
-    menu.addEventListener("click", (e) => {
+    const menu = $("#moreMenu"), userMenu = $("#userMenu");
+    $("#btnMore").addEventListener("click", (e) => {
+      e.stopPropagation(); userMenu.hidden = true;
+      if ($("#btnMore").hidden) return;
+      menu.hidden = !menu.hidden;
+    });
+    $("#btnUser").addEventListener("click", (e) => { e.stopPropagation(); menu.hidden = true; userMenu.hidden = !userMenu.hidden; });
+    document.addEventListener("click", () => { menu.hidden = true; userMenu.hidden = true; });
+    const onMenuAct = (e) => {
       const b = e.target.closest("button[data-act]");
       if (!b) return;
-      menu.hidden = true;
-      if (b.dataset.act === "rollover") openRolloverDialog();
-      if (b.dataset.act === "template") downloadTemplate();
-      if (b.dataset.act === "settings") openSettingsDialog();
-      if (b.dataset.act === "history") openHistory();
-      if (b.dataset.act === "password") { $("#passwordForm").reset(); $("#passwordError").hidden = true; $("#passwordDialog").showModal(); }
-      if (b.dataset.act === "logout") logout();
-    });
+      menu.hidden = true; userMenu.hidden = true;
+      const act = b.dataset.act;
+      if (["rollover", "template", "settings", "history"].includes(act) && !document.body.classList.contains("is-admin")) { toast("Menu ini hanya untuk admin", "err"); return; }
+      if (act === "rollover") openRolloverDialog();
+      if (act === "template") downloadTemplate();
+      if (act === "settings") openSettingsDialog();
+      if (act === "history") openHistory();
+      if (act === "password") { $("#passwordForm").reset(); $("#passwordError").hidden = true; $("#passwordDialog").showModal(); }
+      if (act === "logout") logout();
+    };
+    menu.addEventListener("click", onMenuAct);
+    userMenu.addEventListener("click", onMenuAct);
 
     $$("dialog [data-close]").forEach((b) => b.addEventListener("click", () => b.closest("dialog").close()));
     $$("dialog").forEach((d) => d.addEventListener("click", (e) => { if (e.target === d) d.close(); }));
@@ -1061,10 +1094,15 @@
   async function init() {
     wire();
     const cfg = window.FC_CONFIG || {};
-    $("#loginTitle").textContent = titleCase(cfg.TITLE || "Master Forecast Consumption Plan");
-    $("#loginCompany").textContent = cfg.COMPANY || "";
-    $("#appTitle").textContent = titleCase(cfg.TITLE || "Master Forecast Consumption Plan");
-    $("#appCompany").textContent = cfg.COMPANY || "";
+    // Judul & perusahaan di form login: pakai nilai terakhir dari Pengaturan (disimpan di browser
+    // setelah login), kalau belum ada pakai config.js.
+    const bootTitle = localStorage.getItem("fc.title") || cfg.TITLE || "Inventory Management System – Stock Items";
+    const bootCompany = localStorage.getItem("fc.company") ?? (cfg.COMPANY || "");
+    $("#loginTitle").textContent = titleCase(bootTitle);
+    $("#loginCompany").textContent = bootCompany;
+    $("#appTitle").textContent = titleCase(bootTitle);
+    $("#appCompany").textContent = bootCompany;
+    document.title = titleCase(bootTitle);
     if (!data().configured()) {
       $("#loginForm").hidden = true; $("#setupNotice").hidden = false; showLogin(true);
       return;
@@ -1073,7 +1111,7 @@
       const session = await data().auth.session();
       if (session) await onSignedIn(session); else showLogin(true);
       data().auth.onChange((event, sess) => {
-        if (event === "SIGNED_OUT") showLogin(true);
+        if (event === "SIGNED_OUT") { applyUserUI(null); showLogin(true); }
         else if (event === "PASSWORD_RECOVERY") { showLogin(false); $("#passwordForm").reset(); $("#passwordDialog").showModal(); }
         else if (event === "SIGNED_IN" && sess && $("#loginScreen").hidden === false && !$("#btnLogin").disabled) onSignedIn(sess);
       });

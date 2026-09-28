@@ -16,7 +16,7 @@ const WEB = join(root, "web");
 const PORT = Number(process.env.PORT || 8080);
 const PGRST_PORT = Number(process.env.PGRST_PORT || 3001);
 const JWT_SECRET = process.env.JWT_SECRET || "local-test-jwt-secret-with-at-least-32-chars!!";
-const USERS = { "demo@forecast.local": "demo1234", "admin@forecast.local": "admin1234", "demo@local": "demo1234" };
+const USERS = { "demo@forecast.local": "demo1234", "anggit@forecast.local": "anggit1234", "admin@forecast.local": "admin1234", "demo@local": "demo1234" };
 
 // ---------------------------------------------------------------- start PostgREST
 const pgrstConf = `db-uri = "${process.env.DB_URI || "postgres://authenticator:secret@localhost/fc"}"
@@ -99,7 +99,7 @@ function serveStatic(req, res, url) {
   // Local config: point supabase-js at this same origin (rest + auth proxies).
   if (p === "/config.js") {
     res.writeHead(200, { "Content-Type": MIME[".js"], "Cache-Control": "no-store" });
-    return res.end(`window.FC_CONFIG = { SUPABASE_URL: location.origin, SUPABASE_ANON_KEY: "local-anon-key", DEFAULT_YEAR: 2026, LOGIN_DOMAIN: "forecast.local", PASSWORD_RESET: false, COMPANY: "PT BRIDGESTONE SUMATRA RUBBER ESTATE", TITLE: "MASTER FORECAST CONSUMPTION PLAN – STOCK ITEMS", LOCAL_DEMO: true };\n`);
+    return res.end(`window.FC_CONFIG = { SUPABASE_URL: location.origin, SUPABASE_ANON_KEY: "local-anon-key", DEFAULT_YEAR: 2026, LOGIN_DOMAIN: "forecast.local", PASSWORD_RESET: false, ADMIN_USERS: ["anggit", "admin"], COMPANY: "PT BRIDGESTONE SUMATRA RUBBER ESTATE", TITLE: "MASTER FORECAST CONSUMPTION PLAN – STOCK ITEMS", LOCAL_DEMO: true };\n`);
   }
   res.writeHead(200, { "Content-Type": MIME[extname(file)] || "application/octet-stream", "Cache-Control": "no-store" });
   res.end(readFileSync(file));

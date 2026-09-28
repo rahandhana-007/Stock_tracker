@@ -72,6 +72,7 @@ sesi login (`authenticated`) yang boleh membaca/menulis, dan fungsi RPC dicabut 
    | `TITLE` *(opsional)* | `MASTER FORECAST CONSUMPTION PLAN – STOCK ITEMS` |
    | `LOGIN_DOMAIN` *(opsional)* | `forecast.local` — domain internal di belakang username |
    | `PASSWORD_RESET` *(opsional)* | `false` — `true` hanya bila user punya email asli & SMTP aktif |
+   | `ADMIN_USERS` *(opsional)* | `anggit` — username yang boleh membuka menu ⋯ (pisahkan dengan koma) |
 
 4. **Deploys → Trigger deploy**. Skrip build menulis `web/config.js` dari variabel di atas.
 
@@ -82,6 +83,13 @@ sesi login (`authenticated`) yang boleh membaca/menulis, dan fungsi RPC dicabut 
 Buka alamat Netlify → halaman login → masuk dengan akun dari langkah 1.3.
 
 ---
+
+### Hak akses di tampilan
+* Nama user yang login tampil (huruf kapital) di kiri pilihan FY; klik untuk *Ganti password* / *Keluar*.
+* Menu **⋯** (rollover tahun, template, pengaturan judul, riwayat import) hanya tampil untuk username
+  di `ADMIN_USERS` (bawaan: `anggit`). Ini pembatasan di sisi tampilan; semua user login tetap
+  boleh mengedit data lewat RLS. Bila perlu pembatasan di database (mis. hanya admin yang boleh
+  rollover/hapus item), tambahkan policy RLS berbasis email — bisa ditambahkan belakangan.
 
 ## 3. Yang berubah dibanding versi FastAPI
 

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Master Forecast Consumption Plan</title>
+<title>Inventory Management System – Stock Items</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23c8102e'/%3E%3Cpath d='M8 22l5-6 4 3 7-9' stroke='%23fff' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="styles.css">
 </head>
@@ -28,6 +28,16 @@
     </nav>
 
     <div class="actions">
+      <div class="menu-wrap">
+        <button id="btnUser" class="user-chip" title="Akun" aria-haspopup="true" hidden>
+          <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><circle cx="10" cy="6.5" r="3.5" fill="currentColor"/><path d="M3 17c0-3.5 3.1-5.5 7-5.5s7 2 7 5.5" fill="currentColor"/></svg>
+          <span id="topUser"></span>
+        </button>
+        <div id="userMenu" class="menu" hidden>
+          <button data-act="password">Ganti password…</button>
+          <button data-act="logout">Keluar</button>
+        </div>
+      </div>
       <label class="year-pick">FY
         <select id="yearSelect" title="Tahun fiskal"></select>
       </label>
@@ -48,10 +58,6 @@
           <button data-act="template">Download template Excel</button>
           <button data-act="settings">Pengaturan judul / perusahaan…</button>
           <button data-act="history">Riwayat import…</button>
-          <button data-act="password">Ganti password…</button>
-          <div class="menu-sep"></div>
-          <div class="menu-user"><span id="userEmail" class="muted small"></span></div>
-          <button data-act="logout">Keluar</button>
         </div>
       </div>
       <button id="btnAdd" class="btn primary">
@@ -254,9 +260,9 @@
   <form id="loginForm" class="login-card" method="dialog">
     <div class="login-brand">
       <div class="logo" aria-hidden="true"><svg viewBox="0 0 32 32" width="22" height="22"><path d="M6 24l6-8 5 4 9-12" stroke="#fff" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-      <div><h1 id="loginTitle">Master Forecast Consumption Plan</h1><div class="sub" id="loginCompany">&nbsp;</div></div>
+      <div><h1 id="loginTitle">Inventory Management System – Stock Items</h1><div class="sub" id="loginCompany">&nbsp;</div></div>
     </div>
-    <label>Username<input name="email" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required placeholder="cth. budi"></label>
+    <label>Username<input name="email" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
     <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
     <p class="form-error" id="loginError" hidden></p>
     <button type="submit" class="btn primary wide" id="btnLogin">Masuk</button>

@@ -9,6 +9,8 @@ window.FC_CONFIG = {
   LOGIN_DOMAIN: "forecast.local",
   // true hanya jika user punya email asli + SMTP Supabase dikonfigurasi (menampilkan "Lupa password?").
   PASSWORD_RESET: false,
+  // Username yang boleh membuka menu ⋯ (rollover, template, pengaturan, riwayat import).
+  ADMIN_USERS: ["anggit"],
   COMPANY: "PT BRIDGESTONE SUMATRA RUBBER ESTATE",
-  TITLE: "MASTER FORECAST CONSUMPTION PLAN – STOCK ITEMS",
+  TITLE: "INVENTORY MANAGEMENT SYSTEM – STOCK ITEMS",
 };

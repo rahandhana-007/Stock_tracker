@@ -1,5 +1,5 @@
 // Dijalankan oleh Netlify saat build: menulis web/config.js dari environment variable.
-// Variabel: SUPABASE_URL, SUPABASE_ANON_KEY (wajib), DEFAULT_YEAR, COMPANY, TITLE, LOGIN_DOMAIN, PASSWORD_RESET (opsional).
+// Variabel: SUPABASE_URL, SUPABASE_ANON_KEY (wajib), DEFAULT_YEAR, COMPANY, TITLE, LOGIN_DOMAIN, PASSWORD_RESET, ADMIN_USERS (opsional; ADMIN_USERS dipisah koma).
 import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -25,8 +25,9 @@ const cfg = {
   DEFAULT_YEAR: Number(env.DEFAULT_YEAR) || new Date().getFullYear(),
   LOGIN_DOMAIN: (env.LOGIN_DOMAIN || "forecast.local").replace(/^@/, ""),
   PASSWORD_RESET: /^(1|true|yes)$/i.test(env.PASSWORD_RESET || ""),
+  ADMIN_USERS: (env.ADMIN_USERS || "anggit").split(",").map((u) => u.trim()).filter(Boolean),
   COMPANY: env.COMPANY || "PT BRIDGESTONE SUMATRA RUBBER ESTATE",
-  TITLE: env.TITLE || "MASTER FORECAST CONSUMPTION PLAN – STOCK ITEMS",
+  TITLE: env.TITLE || "INVENTORY MANAGEMENT SYSTEM – STOCK ITEMS",
 };
 writeFileSync(target, `// Dihasilkan otomatis saat build (${new Date().toISOString()}) — jangan diedit manual.\nwindow.FC_CONFIG = ${JSON.stringify(cfg, null, 2)};\n`);
 console.log(`[build-config] web/config.js ditulis untuk ${cfg.SUPABASE_URL}`);

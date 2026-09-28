@@ -338,3 +338,11 @@ body.locked .app { filter: blur(2px); pointer-events: none; user-select: none; }
 }
 @media (prefers-reduced-motion: reduce) { .stock-alert { animation: none; } }
 @media print { .stock-alert { animation: none; } }
+
+/* ---------- user chip (kiri FY) ---------- */
+.user-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px 5px 9px; border-radius: 999px; border: 1px solid var(--line-2, #d7dbe2); background: #f3f4f6; color: var(--ink); font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; white-space: nowrap; max-width: 220px; }
+.user-chip:hover { background: #e9ebef; }
+.user-chip svg { color: var(--ink-3, #6b7280); flex: none; }
+.user-chip span { overflow: hidden; text-overflow: ellipsis; }
+.user-chip[hidden] { display: none; }
+#btnMore[hidden] { display: none; }
