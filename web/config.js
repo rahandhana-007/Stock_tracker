@@ -2,8 +2,8 @@
 // oleh scripts/build-config.mjs dari environment variable (SUPABASE_URL, SUPABASE_ANON_KEY, ...).
 // Untuk uji lokal, isi langsung di sini.
 window.FC_CONFIG = {
-  SUPABASE_URL: "https://YOUR-PROJECT.supabase.co",
-  SUPABASE_ANON_KEY: "YOUR_ANON_KEY",
+  SUPABASE_URL: "https://ymgufmavqnhupwoslgbw.supabase.co",
+  SUPABASE_ANON_KEY: "sb_publishable_pCZSGcla5e2ehiM2KA4K1Q_70_t9S-E",
   DEFAULT_YEAR: 2026,
   // Login memakai username: "budi" → akun Supabase "budi@forecast.local" (domain internal, tanpa mailbox).
   LOGIN_DOMAIN: "forecast.local",
