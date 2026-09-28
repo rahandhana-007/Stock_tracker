@@ -1,0 +1,11 @@
+{
+  "name": "forecast-netlify",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Master Forecast Consumption Plan – static site (Netlify) + Supabase",
+  "scripts": {
+    "build": "node scripts/build-config.mjs",
+    "test": "node tests/unit.test.mjs",
+    "serve": "npx --yes serve web -l 8080"
+  }
+}

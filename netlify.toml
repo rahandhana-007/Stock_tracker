@@ -1,0 +1,29 @@
+[build]
+  publish = "web"
+  command = "node scripts/build-config.mjs"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Aset berversi boleh di-cache lama; HTML & config selalu diambil ulang.
+[[headers]]
+  for = "/vendor/*"
+  [headers.values]
+    Cache-Control = "public, max-age=604800"
+
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/config.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
