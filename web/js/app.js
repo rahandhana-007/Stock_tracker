@@ -98,6 +98,14 @@
   async function loadMeta() {
     state.meta = await data().meta(state.items.length ? state.items : null);
     state.today = new Date(state.meta.today + "T00:00:00");
+    const prevUntil = state.sapUntil ? state.sapUntil.iso : null;
+    state.sapUntil = sapUntilFor(state.year);
+    if ((state.sapUntil ? state.sapUntil.iso : null) !== prevUntil) {
+      // bulan parsial: tampil di grid, ikut End Stock, tapi dikecualikan dari variance/akurasi
+      FC.calc.options.partialMonth = state.sapUntil && state.sapUntil.partial ? state.sapUntil.month : null;
+      state.items.forEach((it) => FC.calc.computeItem(it));
+      if (state.items.length) renderGrid();
+    }
     if (state.year === null) {
       const saved = +localStorage.getItem("fc.year");
       state.year = state.meta.years.includes(saved) ? saved : state.meta.default_year;
@@ -173,11 +181,35 @@
     return state.today.getFullYear() === state.year ? state.today.getMonth() + 1 : 0;
   }
 
+  /** {month, day, iso, partial} bila ada catatan batas data SAP untuk tahun tsb (settings.sap_until_<year>). */
+  function sapUntilFor(year) {
+    const iso = state.meta && state.meta.settings ? state.meta.settings[`sap_until_${year}`] : null;
+    if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+    const [y, m, d] = iso.split("-").map(Number);
+    if (y !== year) return null;
+    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    return { month: m, day: d, iso, partial: d < lastDay };
+  }
+  /** Label "s/d Agu" atau "s/d 4 Sep" untuk bulan data terakhir suatu item. */
+  function uptoLabel(lastDataMonth) {
+    if (!lastDataMonth) return "";
+    const u = state.sapUntil;
+    if (u && u.partial && u.month === lastDataMonth) return `s/d ${u.day} ${MONTHS[lastDataMonth - 1]}`;
+    return `s/d ${MONTHS[lastDataMonth - 1]}`;
+  }
+
   function renderGrid() {
     const table = $("#grid");
     $$("tbody", table).forEach((tb) => tb.remove());
     const cur = currentMonthIdx();
-    $$("thead th.c-m", table).forEach((th) => th.classList.toggle("cur", +th.dataset.m === cur));
+    const u = state.sapUntil;
+    $$("thead th.c-m", table).forEach((th) => {
+      const m = +th.dataset.m;
+      th.classList.toggle("cur", m === cur);
+      const partial = !!(u && u.partial && u.month === m);
+      th.classList.toggle("partial", partial);
+      th.innerHTML = partial ? `${MONTHS[m - 1]}<small class="partial-tag" title="Data SAP baru sampai ${u.day} ${MONTHS[m - 1]} ${state.year} (bulan belum tutup)">s/d ${u.day}</small>` : MONTHS[m - 1];
+    });
 
     const visible = state.items.filter(matches);
     const frag = document.createDocumentFragment();
@@ -214,8 +246,8 @@
         <td class="c-total t-forecast" title="Total forecast setahun (FY)"></td>
         <td class="c-kpi" rowspan="4"></td>
       </tr>
-      <tr class="r-actual"><td class="c-label">${ROW_LABEL.actual}</td>${monthCells("actual")}<td class="c-total t-actual" title="Total actual (YTD)"></td></tr>
-      <tr class="r-incoming"><td class="c-label">${ROW_LABEL.incoming}</td>${monthCells("incoming")}<td class="c-total t-incoming" title="Total incoming"></td></tr>
+      <tr class="r-actual"><td class="c-label clickable" data-tx="out" data-id="${it.id}" title="Lihat histori barang keluar (SAP)">${ROW_LABEL.actual}</td>${monthCells("actual")}<td class="c-total t-actual" title="Total actual (YTD)"></td></tr>
+      <tr class="r-incoming"><td class="c-label clickable" data-tx="in" data-id="${it.id}" title="Lihat histori barang masuk (SAP)">${ROW_LABEL.incoming}</td>${monthCells("incoming")}<td class="c-total t-incoming" title="Total incoming"></td></tr>
       <tr class="r-end"><td class="c-label">${ROW_LABEL.end}</td>${endCells}<td class="c-total t-end" title="End Stock Desember"></td></tr>`;
     updateComputed(tb, it);
     return tb;
@@ -240,6 +272,7 @@
       <div class="item-actions">
         <button class="link" data-act="edit" data-id="${it.id}">Edit</button>
         <button class="link danger" data-act="delete" data-id="${it.id}">Hapus</button>
+        <button class="link hist" data-act="history" data-id="${it.id}" title="Histori transaksi keluar/masuk dari SAP">Histori</button>
       </div>
       <div class="stock-alert" role="alert" hidden>
         <svg viewBox="0 0 20 20" width="13" height="13" aria-hidden="true"><path d="M10 2.5l8 14H2l8-14z" fill="currentColor"/><path d="M10 8v4.2M10 14.3v.2" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></svg>
@@ -253,7 +286,7 @@
     if (!el) return;
     const below = c.status !== "none" && c.current_stock !== null && c.current_stock < Number(it.min_stock || 0);
     el.hidden = !below;
-    if (below) el.title = `End Stock ${fmt(c.current_stock)} ${it.uom || ""} < Min ${fmt(it.min_stock)} ${it.uom || ""} (s/d ${MONTHS[(c.last_data_month || 1) - 1]})`;
+    if (below) el.title = `End Stock ${fmt(c.current_stock)} ${it.uom || ""} < Min ${fmt(it.min_stock)} ${it.uom || ""} (${uptoLabel(c.last_data_month || 1)})`;
   }
 
   /** Update computed cells (end stock, totals, KPI) of one item block without touching inputs. */
@@ -279,15 +312,15 @@
     const uom = it.uom || "";
     const accCls = c.accuracy === null ? "" : c.accuracy >= 0.8 ? "" : c.accuracy >= 0.5 ? "mid" : "low";
     const varCls = c.variance === null ? "" : c.variance > 0 ? "neg" : "";
-    const upto = c.last_data_month ? `<small class="muted">(s/d ${MONTHS[c.last_data_month - 1]})</small>` : "";
+    const upto = c.last_data_month ? `<small class="muted">(${uptoLabel(c.last_data_month)})</small>` : "";
     return `
       <div class="status-badge ${c.status}" title="${STATUS_LABEL[c.status]}">${STATUS_LABEL[c.status]}</div>
       <dl class="kpi-list">
         <dt>Stok saat ini</dt><dd>${fmt(c.current_stock)} ${upto}</dd>
         <dt title="Rata-rata forecast per bulan">Avg/bln</dt><dd>${fmt(c.avg_forecast)}</dd>
         <dt>Peak</dt><dd>${c.peak_month ? `${MONTHS[c.peak_month - 1]} · ${fmt(c.peak_qty)}` : "–"}</dd>
-        <dt title="Forecast pada ${c.months_compared} bulan yang sudah punya forecast & actual">Fcst YTD</dt><dd>${fmt(c.ytd_forecast)}</dd>
-        <dt title="Actual − Forecast (${c.months_compared} bulan dibandingkan)">Var YTD</dt><dd class="${varCls}">${c.variance === null ? "–" : `${c.variance > 0 ? "+" : ""}${fmt(c.variance)} <small>(${pct(c.variance_pct)})</small>`}</dd>
+        <dt title="Forecast pada ${c.months_compared} bulan yang sudah punya forecast & actual${c.partial_month ? ` (${MONTHS[c.partial_month - 1]} parsial tidak dihitung)` : ""}">Fcst YTD${c.partial_month ? `<small class="muted"> s/d ${MONTHS[c.partial_month - 2] || "–"}</small>` : ""}</dt><dd>${fmt(c.ytd_forecast)}</dd>
+        <dt title="Actual − Forecast (${c.months_compared} bulan dibandingkan${c.partial_month ? `, ${MONTHS[c.partial_month - 1]} parsial tidak dihitung` : ""})">Var YTD</dt><dd class="${varCls}">${c.variance === null ? "–" : `${c.variance > 0 ? "+" : ""}${fmt(c.variance)} <small>(${pct(c.variance_pct)})</small>`}</dd>
         <dt>Akurasi</dt><dd>${c.accuracy === null ? "–" : `<span class="acc-bar ${accCls}"><i style="width:${Math.round(c.accuracy * 100)}%"></i></span>${pct(c.accuracy)}`}</dd>
         ${c.months_cover !== null ? `<dt>Cover</dt><dd>${nf1.format(c.months_cover)} bln</dd>` : ""}
         ${c.suggested_order > 0 ? `<dt>Saran order</dt><dd class="order">${fmt(c.suggested_order)} ${esc(uom)}</dd>` : ""}
@@ -441,6 +474,13 @@
       if (!it) return;
       if (btn.dataset.act === "edit") openItemDialog(it);
       if (btn.dataset.act === "delete") deleteItem(it);
+      if (btn.dataset.act === "history") openTxDialog(it, { role: "" });
+    });
+    wrap.addEventListener("click", (e) => {
+      const td = e.target.closest("td.c-label[data-tx]");
+      if (!td) return;
+      const it = state.byId.get(+td.dataset.id);
+      if (it) openTxDialog(it, { role: td.dataset.tx });
     });
   }
 
@@ -598,7 +638,8 @@
     const balWarn = pv.balance_mismatch ? `<div class="pv-warn">${pv.balance_mismatch} item saldo awal + terima − keluar ≠ saldo akhir — periksa file.</div>` : "";
     const unknown = pv.doc_types.filter((d) => d.role === "auto");
     const unkWarn = unknown.length ? `<div class="pv-warn">Jenis dokumen tidak dikenal: ${unknown.map((d) => d.type).join(", ")} — Rec dianggap Incoming, Iss dianggap Actual.</div>` : "";
-    const toDefault = pv.last_complete_month || Math.max(1, ...pv.months_with_data);
+    const toDefault = pv.months_with_data.length ? Math.max(...pv.months_with_data) : (pv.last_complete_month || 1);
+    const partialMonth = pv.date_max && toDefault > (pv.last_complete_month || 0) ? toDefault : null;
     return `
       <div class="pv-head"><span class="chip big">Format: SAP Inventory Posting List</span>
         <span class="chip">Periode ${fmtDate(pv.date_min)} – ${fmtDate(pv.date_max)}</span><span class="chip">Tahun ${pv.year}</span>
@@ -612,7 +653,9 @@
           <label>sampai bulan<select name="to_month">${monthOpt(toDefault)}</select></label>
         </div>
         <label class="radio" style="margin-top:10px"><input type="checkbox" name="set_opening" checked> <span>Set <b>stok awal Januari</b> dari saldo awal SAP (hanya jika mulai dari Jan)</span></label>
-        <div class="pv-info">Bulan terakhir yang lengkap: <b>${pv.last_complete_month ? MONTHS[pv.last_complete_month - 1] : "–"}</b>. Bulan “parsial” berarti data SAP belum sampai akhir bulan — sebaiknya jangan diimpor dulu.</div>
+        <div class="pv-info">${partialMonth
+          ? `Data SAP tersedia s/d <b>${fmtDate(pv.date_max)}</b> — bulan <b>${MONTHS[partialMonth - 1]}</b> masih parsial dan ikut diimport (histori transaksi lengkap s/d tanggal itu). Angka ${MONTHS[partialMonth - 1]} akan bertambah otomatis saat file SAP berikutnya diimport.`
+          : `Bulan terakhir yang lengkap: <b>${pv.last_complete_month ? MONTHS[pv.last_complete_month - 1] : "–"}</b>.`}</div>
       </div>
       <div class="pv-section"><h4>Cakupan item</h4>
         <label class="radio"><input type="radio" name="scope" value="existing" checked> <span><b>Hanya item yang sudah ada di master</b> (${pv.matched} item)</span></label>
@@ -645,6 +688,34 @@
     op.addEventListener("change", () => (op.dataset.touched = "1"));
   }
 
+  /** Progress bar di dialog import: merayap ke 95% selama minMs, lalu 100% saat selesai (min. tampil minMs). */
+  function startImportProgress(minMs = 5000) {
+    const panel = $("#importProgress"), bar = $("#importBar"), pct = $("#importPct"), stage = $("#importStage"), pb = $("#importDialog .ip-bar");
+    const t0 = performance.now();
+    let cur = 0, done = false, raf = 0;
+    const setPct = (v) => { cur = Math.max(cur, Math.min(100, v)); bar.style.width = cur + "%"; pct.textContent = Math.round(cur) + "%"; pb.setAttribute("aria-valuenow", String(Math.round(cur))); };
+    stage.textContent = "Menyiapkan data…";
+    panel.hidden = false; setPct(0);
+    const tick = () => {
+      const el = performance.now() - t0;
+      setPct(done ? 100 : Math.min(95, 95 * (1 - Math.exp(-el / (minMs * 0.4)))));   // cepat di awal, melambat mendekati 95%
+      if (cur < 100) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    return {
+      stage: (txt) => { stage.textContent = txt || "\u00a0"; },
+      async finish() {
+        const remaining = minMs - (performance.now() - t0);
+        if (remaining > 0) await sleep(remaining);          // tampil minimal 5 detik
+        done = true; stage.textContent = "Selesai!";
+        await sleep(450);
+        cancelAnimationFrame(raf); panel.hidden = true;
+      },
+      cancel() { cancelAnimationFrame(raf); panel.hidden = true; },
+    };
+  }
+
   async function submitImport(e) {
     e.preventDefault();
     const form = $("#importForm");
@@ -671,30 +742,145 @@
     }
     if (confirmText) { const ok = await confirmDlg("Konfirmasi import", confirmText, "Ya, import"); if (!ok) return; }
     $("#btnDoImport").disabled = true;
+    $("#importError").hidden = true;
+    const prog = startImportProgress(5000);
     try {
       let res;
       if (pv.format === "sap") {
         const { payload, stats } = FC.sap.buildPayload(importState.parsed, options, state.items);
+        prog.stage(`Menyimpan Actual & Incoming ${payload.items.length} item…`);
         const r = await data().applyChanges(payload);
         res = { ...stats, created: r.created, updated: r.updated, format: "sap", year };
+        // simpan batas tanggal data SAP untuk tahun ini (dipakai penanda "s/d 4 Sep" di grid)
+        try {
+          const lastDay = new Date(Date.UTC(year, options.to_month, 0)).getUTCDate();
+          const endSel = `${year}-${String(options.to_month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+          const until = pv.date_max && pv.date_max < endSel ? pv.date_max : endSel;
+          await data().setSetting(`sap_until_${year}`, until);
+        } catch (_) { /* opsional */ }
+        // histori transaksi (breakdown per tanggal) — tabel "transactions"
+        try {
+          const tx = FC.sap.buildTransactions(importState.parsed, options, payload);
+          prog.stage(`Menyimpan histori transaksi (${fmt(tx.rows.length)} baris)…`);
+          const t = await data().importTransactions(tx, (done, total) => prog.stage(`Menyimpan histori transaksi ${fmt(done)}/${fmt(total)}…`));
+          res.transactions = t.inserted;
+        } catch (e) {
+          res.transactions_error = e.message;
+        }
       } else {
         const payload = FC.master.buildPayload(importState.parsed, options);
+        prog.stage(`Menyimpan ${payload.items.length} item…`);
         const r = await data().applyChanges(payload);
         res = { created: r.created, updated: r.updated, total: pv.items_total, format: "master", year };
       }
       data().logImport({ format: res.format, filename: file.name, options, result: res });
-      $("#importDialog").close();
+      prog.stage("Memuat ulang tabel…");
       state.year = year;
       localStorage.setItem("fc.year", year);
       await loadItems();
       await loadMeta();
+      await prog.finish();
+      $("#importDialog").close();
       if (res.format === "sap") {
-        toast(`Import SAP selesai: ${res.updated || 0} item diperbarui, ${res.created || 0} item baru, ${MONTHS[res.from_month - 1]}–${MONTHS[res.to_month - 1]} FY ${res.year}` + (res.opening_set ? `, ${res.opening_set} stok awal` : ""), "ok");
+        toast(`Import SAP selesai: ${res.updated || 0} item diperbarui, ${res.created || 0} item baru, ${MONTHS[res.from_month - 1]}–${MONTHS[res.to_month - 1]} FY ${res.year}` + (res.opening_set ? `, ${res.opening_set} stok awal` : "") + (res.transactions ? `, ${fmt(res.transactions)} transaksi histori` : ""), "ok");
+        if (res.transactions_error) setTimeout(() => toast("Histori transaksi tidak tersimpan: " + res.transactions_error + " — jalankan supabase/002_transactions.sql di Supabase.", "err"), 2500);
       } else {
         toast(`Import selesai: ${res.created} item baru, ${res.updated} diperbarui (FY ${res.year})`, "ok");
       }
-    } catch (err) { showFormError("#importError", err.message); }
+    } catch (err) { prog.cancel(); showFormError("#importError", err.message); }
     finally { $("#btnDoImport").disabled = false; }
+  }
+
+  // ------------------------------------------------------------------ histori transaksi SAP
+  const txState = { item: null, rows: [], role: "", month: 0 };
+  const ROLE_OF = (r) => (r.role === "actual" ? "out" : r.role === "incoming" || r.role === "return" ? "in" : r.role === "ignore" ? "ignore" : (r.rec_qty > 0 ? "in" : r.iss_qty > 0 ? "out" : "ignore"));
+  const DOC_DESC = { SO: "Goods Issue", PD: "Goods Receipt PO", SI: "Stock In", PR: "Goods Return", IM: "Inventory Transfer", PU: "A/P Invoice", MR: "Revaluasi" };
+  const fmtTxDate = (iso) => { const [y, m, d] = String(iso).split("-"); return `${d}/${m}/${y}`; };
+
+  async function openTxDialog(it, { role = "", month = 0 } = {}) {
+    txState.item = it; txState.role = role; txState.month = month; txState.rows = [];
+    $("#txTitle").textContent = `${it.code} · ${it.description}`;
+    $("#txSub").textContent = `Histori keluar/masuk dari SAP · FY ${state.year} · UoM ${it.uom || "–"} · stok awal ${fmt(it.opening_stock)}`;
+    $("#txMonth").value = String(month); $("#txRole").value = role;
+    $("#txBody").innerHTML = `<div class="loading">Memuat…</div>`; $("#txCount").textContent = "";
+    $("#txDialog").showModal();
+    try {
+      txState.rows = await data().transactions(it.id, state.year);
+      renderTx();
+    } catch (e) {
+      const missing = /transactions|schema cache|does not exist/i.test(e.message);
+      $("#txBody").innerHTML = `<div class="tx-empty">${missing ? "Tabel histori belum ada di database.<br>Jalankan <code>supabase/002_transactions.sql</code> di Supabase SQL Editor, lalu import ulang file SAP." : esc(e.message)}</div>`;
+    }
+  }
+
+  function txFiltered() {
+    return txState.rows.filter((r) => (!txState.month || r.month === txState.month) && (!txState.role || ROLE_OF(r) === txState.role));
+  }
+
+  function renderTx() {
+    const it = txState.item, rows = txFiltered();
+    const body = $("#txBody");
+    if (!txState.rows.length) {
+      body.innerHTML = `<div class="tx-empty">Belum ada histori transaksi untuk item ini di FY ${state.year}.<br>Import file <b>SAP Inventory Posting List</b> lewat tombol Import — setiap baris transaksi (tanggal, nomor dokumen, qty, saldo) akan tersimpan di sini.</div>`;
+      $("#txCount").textContent = ""; return;
+    }
+    if (!rows.length) { body.innerHTML = `<div class="tx-empty">Tidak ada transaksi yang cocok dengan filter.</div>`; $("#txCount").textContent = `0 dari ${txState.rows.length} transaksi`; return; }
+    let sumIn = 0, sumOut = 0, sumIgn = 0;
+    const byMonth = new Map();
+    for (const r of rows) { (byMonth.get(r.month) || byMonth.set(r.month, []).get(r.month)).push(r); }
+    const trs = [];
+    for (const [m, list] of [...byMonth.entries()].sort((a, b) => a[0] - b[0])) {
+      let mIn = 0, mOut = 0;
+      trs.push(`<tr class="month-head"><td colspan="8">${MONTHS[m - 1]} ${state.year} · ${list.length} transaksi</td></tr>`);
+      for (const r of list) {
+        const kind = ROLE_OF(r);
+        const inQ = kind === "in" ? (r.role === "return" ? -r.iss_qty : r.rec_qty) : 0;
+        const outQ = kind === "out" ? r.iss_qty : 0;
+        if (kind === "in") { mIn += inQ; sumIn += inQ; } else if (kind === "out") { mOut += outQ; sumOut += outQ; } else sumIgn += 1;
+        const pill = kind === "in" ? (r.role === "return" ? `<span class="tx-pill ret">retur</span>` : `<span class="tx-pill in">masuk</span>`) : kind === "out" ? `<span class="tx-pill out">keluar</span>` : `<span class="tx-pill">diabaikan</span>`;
+        trs.push(`<tr class="${kind === "ignore" ? "ignored" : ""}">
+          <td>${fmtTxDate(r.posting_date)}</td>
+          <td>${esc(r.doc_no || r.doc_type)}</td>
+          <td>${esc(DOC_DESC[r.doc_type] || r.doc_type || "–")}${pill}</td>
+          <td>${esc(r.whse || "–")}</td>
+          <td class="acct" title="${esc(r.acct_name || "")}">${esc(r.acct_name || "–")}</td>
+          <td class="num in">${r.rec_qty ? fmt(r.rec_qty) : ""}</td>
+          <td class="num out">${r.iss_qty ? fmt(r.iss_qty) : ""}</td>
+          <td class="num">${r.balance === null || r.balance === undefined ? "–" : fmt(Number(r.balance))}</td>
+        </tr>`);
+      }
+      trs.push(`<tr class="month-sum"><td colspan="5">Subtotal ${MONTHS[m - 1]}</td><td class="num in">${mIn ? fmt(mIn) : ""}</td><td class="num out">${mOut ? fmt(mOut) : ""}</td><td></td></tr>`);
+    }
+    const last = rows[rows.length - 1];
+    body.innerHTML = `
+      <div class="tx-summary">
+        <span>Masuk (Incoming): <b>${fmt(sumIn)} ${esc(it.uom || "")}</b></span>
+        <span>Keluar (Actual): <b>${fmt(sumOut)} ${esc(it.uom || "")}</b></span>
+        <span>Selisih: <b>${fmt(sumIn - sumOut)}</b></span>
+        ${sumIgn ? `<span class="muted">${sumIgn} baris diabaikan (transfer/invoice/revaluasi)</span>` : ""}
+        <span class="muted">Saldo SAP terakhir: <b>${last.balance === null ? "–" : fmt(Number(last.balance))}</b> (${fmtTxDate(last.posting_date)})</span>
+      </div>
+      <table class="tx-table">
+        <colgroup><col class="c-date"><col class="c-doc"><col class="c-kind"><col class="c-whse"><col class="c-acct"><col class="c-num"><col class="c-num"><col class="c-num"></colgroup>
+        <thead><tr><th>Tanggal</th><th>Dokumen</th><th>Jenis</th><th>Gudang</th><th>Akun / Partner</th><th class="num">Masuk</th><th class="num">Keluar</th><th class="num" title="Saldo menurut SAP setelah transaksi">Saldo SAP</th></tr></thead>
+        <tbody>${trs.join("")}</tbody>
+      </table>`;
+    $("#txCount").textContent = `${rows.length} dari ${txState.rows.length} transaksi`;
+  }
+
+  async function exportTx() {
+    const it = txState.item, rows = txFiltered();
+    if (!rows.length) { toast("Tidak ada transaksi untuk diunduh"); return; }
+    try {
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet("Histori " + it.code);
+      ws.addRow([`${it.code} – ${it.description}`]); ws.addRow([`Histori transaksi SAP FY ${state.year}` + (txState.month ? ` · ${MONTHS[txState.month - 1]}` : "")]); ws.addRow([]);
+      ws.addRow(["Tanggal", "Dokumen", "Jenis", "Peran", "Gudang", "Akun / Partner", "Masuk", "Keluar", "Saldo SAP", "UoM"]).font = { bold: true };
+      for (const r of rows) ws.addRow([fmtTxDate(r.posting_date), r.doc_no || r.doc_type, DOC_DESC[r.doc_type] || r.doc_type, ROLE_OF(r) === "in" ? "Masuk" : ROLE_OF(r) === "out" ? "Keluar" : "Diabaikan", r.whse, r.acct_name, r.rec_qty || null, r.iss_qty || null, r.balance === null ? null : Number(r.balance), r.uom]);
+      ws.columns.forEach((c, i) => { c.width = [12, 14, 20, 10, 8, 36, 10, 10, 12, 8][i]; });
+      ws.getRow(1).font = { bold: true, size: 12 };
+      downloadBlob(new Blob([await wb.xlsx.writeBuffer()], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), `Histori_${it.code}_FY${state.year}.xlsx`);
+    } catch (e) { toast("Gagal: " + e.message, "err"); }
   }
 
   function openRolloverDialog() {
@@ -752,7 +938,7 @@
     const k = d.kpi;
     const accTxt = k.avg_accuracy === null ? "–" : pct(k.avg_accuracy);
     root.innerHTML = `
-      <div class="dash-head"><h2>Dashboard FY ${d.year}</h2><span class="muted small">Status stok memakai End Stock bulan terakhir yang sudah ada data · Akurasi dihitung YTD (hanya bulan yang sudah ada actual)</span></div>
+      <div class="dash-head"><h2>Dashboard FY ${d.year}</h2><span class="muted small">Status stok memakai End Stock bulan terakhir yang sudah ada data · Akurasi dihitung YTD (hanya bulan yang sudah ada actual${state.sapUntil && state.sapUntil.partial ? `; ${MONTHS[state.sapUntil.month - 1]} parsial s/d tgl ${state.sapUntil.day} tidak dihitung` : ""})</span></div>
       <div class="kpis">
         ${kpiCard("Total item", k.total_items, `${k.with_forecast} ada forecast · ${k.with_actual} ada actual`, "", "")}
         ${kpiCard("Di bawah Min", k.below_min, "perlu order", k.below_min ? "red" : "green", "below_min")}
@@ -1047,6 +1233,9 @@
     bindForm("#rolloverForm", submitRollover);
     bindForm("#settingsForm", submitSettings);
     bindForm("#passwordForm", submitPassword);
+    $("#txMonth").addEventListener("change", (e) => { txState.month = +e.target.value; renderTx(); });
+    $("#txRole").addEventListener("change", (e) => { txState.role = e.target.value; renderTx(); });
+    $("#btnTxExport").addEventListener("click", exportTx);
     bindForm("#loginForm", submitLogin);
     if (window.FC_CONFIG && window.FC_CONFIG.PASSWORD_RESET) {
       $("#btnForgot").hidden = false;

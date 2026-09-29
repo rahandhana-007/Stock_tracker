@@ -124,7 +124,7 @@
 
     const items = {}, order = [], docTypes = {}, years = {};
     let cur = null, dmin = null, dmax = null, txTotal = 0, balanceMismatch = 0;
-    const newItem = (code, name, opening) => ({ code, name: isEmpty(name) ? "" : String(name).trim(), opening, closing: null, closing_set: false, tx_count: 0, uom: {}, acct_names: {}, monthly: {}, types: {}, sum_rec: 0, sum_iss: 0 });
+    const newItem = (code, name, opening) => ({ code, name: isEmpty(name) ? "" : String(name).trim(), opening, closing: null, closing_set: false, tx_count: 0, uom: {}, acct_names: {}, monthly: {}, types: {}, sum_rec: 0, sum_iss: 0, tx: [] });
 
     for (let i = hdrIdx + 1; i < rows.length; i++) {
       const row = rows[i];
@@ -159,6 +159,14 @@
         const u = g(row, "uom");
         if (!isEmpty(u)) inc(cur.uom, String(u).trim());
         if (dtype === "SO" && !isEmpty(g(row, "name"))) inc(cur.acct_names, String(g(row, "name")).trim());
+        cur.tx.push({
+          date: isoDate(d), y: d.y, m: d.m, seq: cur.tx.length + 1,
+          type: dtype, doc: isEmpty(doc) ? "" : String(doc).trim(),
+          whse: isEmpty(g(row, "whse")) ? "" : String(g(row, "whse")).trim(),
+          acct: isEmpty(g(row, "name")) ? "" : String(g(row, "name")).trim(),
+          rec, iss, uom: isEmpty(u) ? "" : String(u).trim(),
+          balance: isEmpty(g(row, "bal")) ? null : num(g(row, "bal")), role,
+        });
         const ym = cur.monthly[d.y] || (cur.monthly[d.y] = {});
         const m = ym[d.m] || (ym[d.m] = { actual: 0, incoming: 0, return: 0 });
         if (role === "actual") m.actual += iss;
@@ -298,6 +306,25 @@
     return { payload: { year, items }, stats: st };
   }
 
+  /**
+   * Transaction-level history for the items written by buildPayload (same options),
+   * limited to year/from_month..to_month. Shape matches RPC import_transactions rows.
+   */
+  function buildTransactions(parsed, options, payload) {
+    const { year, from_month: fromM = 1, to_month: toM = 12 } = options;
+    const codes = new Set((payload && payload.items ? payload.items : []).map((e) => e.code));
+    const rows = [];
+    for (const code of codes) {
+      const it = parsed.items[code];
+      if (!it) continue;
+      for (const t of it.tx) {
+        if (t.y !== year || t.m < fromM || t.m > toM) continue;
+        rows.push({ code, posting_date: t.date, seq: t.seq, doc_type: t.type, doc_no: t.doc, whse: t.whse, acct_name: t.acct, rec_qty: t.rec, iss_qty: t.iss, uom: t.uom, balance: t.balance, role: t.role });
+      }
+    }
+    return { rows, codes: [...codes], year, from_month: fromM, to_month: toM };
+  }
+
   window.FC = window.FC || {};
-  window.FC.sap = { DOC_ROLE, DOC_LABEL, ROLE_LABEL, SapFormatError, detectFormat, isSapHeader, parsePostingList, deriveCategories, summarize, buildPayload };
+  window.FC.sap = { DOC_ROLE, DOC_LABEL, ROLE_LABEL, SapFormatError, detectFormat, isSapHeader, parsePostingList, deriveCategories, summarize, buildPayload, buildTransactions };
 })();

@@ -20,7 +20,12 @@
   }
 
   /** Attach `calc` to an item {opening_stock, min_stock, max_stock, months[12]{forecast,actual,incoming}}. */
+  /** Bulan yang datanya masih parsial (belum tutup buku) — dikecualikan dari variance/akurasi.
+   *  Diset oleh app: FC.calc.options.partialMonth = 9 (atau null). */
+  const options = { partialMonth: null };
+
   function computeItem(item) {
+    const partial = options.partialMonth;
     const months = item.months;
     const opening = num(item.opening_stock);
     const minStock = num(item.min_stock);
@@ -54,7 +59,7 @@
     const ytdActual = actualIdx.reduce((s, i) => s + num(months[i].actual), 0);
     const totalIncoming = months.reduce((s, m) => s + num(m.incoming), 0);
 
-    const cmpIdx = actualIdx.filter((i) => isNum(months[i].forecast));
+    const cmpIdx = actualIdx.filter((i) => isNum(months[i].forecast) && (partial === null || partial === undefined || i + 1 !== partial));
     const ytdForecast = cmpIdx.reduce((s, i) => s + num(months[i].forecast), 0);
     const ytdActualCmp = cmpIdx.reduce((s, i) => s + num(months[i].actual), 0);
 
@@ -67,8 +72,9 @@
       }
     }
 
-    const monthlyAccuracy = months.map((m) => {
+    const monthlyAccuracy = months.map((m, i) => {
       const f = m.forecast, a = m.actual;
+      if (partial !== null && partial !== undefined && i + 1 === partial) return null;
       if (isNum(a) && f) return Math.max(0, 1 - Math.abs(Number(a) - Number(f)) / Number(f));
       return null;
     });
@@ -109,6 +115,7 @@
       month_status: monthStatus,
       has_forecast: fcFilled.length > 0,
       has_actual: actualIdx.length > 0,
+      partial_month: (partial && lastDataMonth === partial) ? partial : null,
     };
     return item;
   }
@@ -194,5 +201,5 @@
   }
 
   window.FC = window.FC || {};
-  window.FC.calc = { MONTHS, computeItem, buildDashboard, stockStatus };
+  window.FC.calc = { MONTHS, computeItem, buildDashboard, stockStatus , options };
 })();

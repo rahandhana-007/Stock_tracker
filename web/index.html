@@ -180,6 +180,14 @@
       <div id="importPreview" hidden></div>
     </div>
     <p class="form-error" id="importError" hidden></p>
+    <div id="importProgress" class="import-progress" hidden aria-live="polite">
+      <div class="ip-box">
+        <div class="ip-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="importBar"></i></div>
+        <div class="ip-pct" id="importPct">0%</div>
+        <p class="ip-text">Sabar yah...Lagi Ngimport nih..</p>
+        <p class="ip-stage muted small" id="importStage">&nbsp;</p>
+      </div>
+    </div>
     <footer>
       <span id="importNote" class="muted small"></span>
       <span class="spacer"></span>
@@ -280,6 +288,36 @@
     <header><h2>Riwayat import</h2><button type="button" class="x" data-close>&times;</button></header>
     <div class="form-col" id="historyBody"><div class="loading">Memuat…</div></div>
     <footer><span class="spacer"></span><button type="button" class="btn" data-close>Tutup</button></footer>
+  </form>
+</dialog>
+
+<!-- ===================== HISTORI TRANSAKSI SAP ===================== -->
+<dialog id="txDialog" class="dlg wide tx-dlg">
+  <form method="dialog">
+    <header>
+      <div><h2 id="txTitle">Histori transaksi</h2><div class="muted small" id="txSub"></div></div>
+      <button type="button" class="x" data-close>&times;</button>
+    </header>
+    <div class="tx-filters">
+      <label>Bulan
+        <select id="txMonth"><option value="0">Semua bulan</option>
+          <option value="1">Jan</option><option value="2">Feb</option><option value="3">Mar</option><option value="4">Apr</option><option value="5">Mei</option><option value="6">Jun</option>
+          <option value="7">Jul</option><option value="8">Agu</option><option value="9">Sep</option><option value="10">Okt</option><option value="11">Nov</option><option value="12">Des</option>
+        </select>
+      </label>
+      <label>Jenis
+        <select id="txRole"><option value="">Semua transaksi</option><option value="out">Barang keluar (Actual)</option><option value="in">Barang masuk (Incoming)</option><option value="ignore">Diabaikan (transfer/invoice/revaluasi)</option></select>
+      </label>
+      <span class="spacer"></span>
+      <span id="txCount" class="muted small"></span>
+      <button type="button" class="btn small" id="btnTxExport" title="Unduh daftar ini sebagai Excel">Excel</button>
+    </div>
+    <div class="tx-body" id="txBody"><div class="loading">Memuat…</div></div>
+    <footer>
+      <span class="muted small">Sumber: SAP Inventory Posting List yang diimport (menu Import). Peran: SO → Actual; PD/SI → Incoming; PR → Incoming (−); IM/PU/MR diabaikan.</span>
+      <span class="spacer"></span>
+      <button type="button" class="btn" data-close>Tutup</button>
+    </footer>
   </form>
 </dialog>
 

@@ -96,6 +96,7 @@
     const distinct = (key) => [...new Set(list.map((r) => r[key]).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
     return {
       company: settings.company ?? cfg.COMPANY ?? "", title: settings.title ?? cfg.TITLE ?? "Master Forecast Consumption Plan",
+      settings,
       default_year: defaultYear, years: [...years].sort((a, b) => a - b),
       categories: distinct("category"), users: distinct("user_dept"), uoms: distinct("uom"),
       today: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`,
@@ -152,16 +153,40 @@
     if (rows.length) unwrap(await client().from("settings").upsert(rows, { onConflict: "key" }));
     return { ok: true };
   }
+  async function setSetting(key, value) {
+    unwrap(await client().from("settings").upsert({ key, value: value === null || value === undefined ? null : String(value) }, { onConflict: "key" }));
+  }
   async function logImport(entry) {
     try {
       const s = await auth.session();
       await client().from("import_logs").insert({ user_email: s && s.user ? s.user.email : null, ...entry });
     } catch (_) { /* audit log is best-effort */ }
   }
+  /** SAP transaction history of one item for a fiscal year (ordered by date, then report order). */
+  async function transactions(itemId, year) {
+    return fetchAll(() => client().from("transactions").select("id, posting_date, month, seq, doc_type, doc_no, whse, acct_name, rec_qty, iss_qty, uom, balance, role")
+      .eq("item_id", itemId).eq("year", year).order("posting_date").order("seq"));
+  }
+  /** Replace + insert SAP transactions in chunks (first chunk deletes the month range for all codes). */
+  async function importTransactions({ rows, codes, year, from_month, to_month }, onProgress) {
+    const CHUNK = 1500;
+    let inserted = 0, deleted = 0;
+    if (!rows.length) {
+      const r = unwrap(await client().rpc("import_transactions", { p: { year, from_month, to_month, replace: true, codes, rows: [] } }));
+      return { inserted: 0, deleted: r.deleted || 0 };
+    }
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const p = { year, from_month, to_month, replace: i === 0, codes: i === 0 ? codes : [], rows: rows.slice(i, i + CHUNK) };
+      const r = unwrap(await client().rpc("import_transactions", { p }));
+      inserted += r.inserted || 0; deleted += r.deleted || 0;
+      if (onProgress) onProgress(Math.min(rows.length, i + CHUNK), rows.length);
+    }
+    return { inserted, deleted };
+  }
   async function importLogs(limit = 20) {
     return unwrap(await client().from("import_logs").select("*").order("created_at", { ascending: false }).limit(limit));
   }
 
   window.FC = window.FC || {};
-  window.FC.data = { configured, client, auth, meta, items, item, createItem, updateItem, deleteItem, applyChanges, setCell, setRow, setOpening, rollover, saveSettings, logImport, importLogs };
+  window.FC.data = { configured, client, auth, meta, items, item, createItem, updateItem, deleteItem, applyChanges, setCell, setRow, setOpening, rollover, saveSettings, setSetting, logImport, importLogs, transactions, importTransactions };
 })();

@@ -346,3 +346,54 @@ body.locked .app { filter: blur(2px); pointer-events: none; user-select: none; }
 .user-chip span { overflow: hidden; text-overflow: ellipsis; }
 .user-chip[hidden] { display: none; }
 #btnMore[hidden] { display: none; }
+
+/* ---------- histori transaksi SAP ---------- */
+.dlg.wide.tx-dlg { width: min(1120px, 96vw); max-width: 96vw; }
+.tx-dlg header { align-items: flex-start; }
+.tx-filters { display: flex; align-items: center; gap: 14px; padding: 8px 0 10px; flex-wrap: wrap; }
+.tx-filters label { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.tx-filters select { font-size: 12.5px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; }
+.tx-body { max-height: 58vh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+.tx-table { width: 100%; border-collapse: collapse; font-size: 12.5px; table-layout: fixed; }
+.tx-table col.c-date { width: 106px; } .tx-table col.c-doc { width: 122px; } .tx-table col.c-kind { width: 208px; } .tx-table col.c-whse { width: 84px; }
+.tx-table col.c-acct { width: auto; } .tx-table col.c-num { width: 94px; }
+.tx-table td, .tx-table th { overflow: hidden; text-overflow: ellipsis; }
+.tx-table th { position: sticky; top: 0; background: #f3f4f6; text-align: left; padding: 7px 10px; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--ink-2); border-bottom: 1px solid var(--line); white-space: nowrap; }
+.tx-table td { padding: 6px 10px; border-bottom: 1px solid #eef0f3; white-space: nowrap; vertical-align: top; }
+.tx-table td.num, .tx-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.tx-table tr.month-head td { background: #fafbfc; font-weight: 800; color: var(--ink-2); font-size: 11.5px; padding: 8px 10px 4px; }
+.tx-table tr.month-sum td { background: #fafbfc; font-weight: 700; border-bottom: 2px solid var(--line); }
+.tx-table td.in { color: #1d4ed8; font-weight: 700; }
+.tx-table td.out { color: #b91c1c; font-weight: 700; }
+.tx-table tr.ignored td { color: var(--ink-3); }
+.tx-table tr.ignored td.in, .tx-table tr.ignored td.out { color: var(--ink-3); font-weight: 500; }
+.tx-table td.acct { max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+.tx-pill { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 999px; background: #eef0f3; color: var(--ink-2); margin-left: 6px; }
+.tx-pill.in { background: #dbeafe; color: #1e40af; } .tx-pill.out { background: #fee2e2; color: #991b1b; } .tx-pill.ret { background: #fef3c7; color: #92400e; }
+.tx-empty { padding: 28px 16px; text-align: center; color: var(--ink-3); font-size: 13px; line-height: 1.5; }
+.tx-summary { display: flex; gap: 18px; flex-wrap: wrap; padding: 8px 12px; font-size: 12px; color: var(--ink-2); border-bottom: 1px solid var(--line); background: #fff; position: sticky; top: 0; z-index: 2; }
+.tx-summary b { color: var(--ink); }
+tbody.item td.c-label.clickable { cursor: pointer; }
+tbody.item td.c-label.clickable:hover { color: var(--blue); text-decoration: underline dotted; }
+.link.hist { color: var(--ink-2); }
+
+/* ---------- penanda bulan parsial (data SAP belum sampai akhir bulan) ---------- */
+.grid thead th.c-m.partial { background: #fff7ed; color: #9a3412; }
+.grid thead th.c-m.partial.cur { background: #ffedd5; }
+.partial-tag { display: block; font-size: 9.5px; font-weight: 700; letter-spacing: 0; text-transform: none; color: #c2410c; line-height: 1; margin-top: 2px; }
+
+/* ---------- progress import ---------- */
+#importDialog form { position: relative; }
+.import-progress { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; background: rgba(15,23,42,.22); backdrop-filter: blur(1.5px); border-radius: 12px; }
+.import-progress[hidden] { display: none; }
+.ip-box { width: min(360px, 82%); text-align: center; background: #fff; padding: 16px 20px 12px; border-radius: 12px; border: 1px solid #e5e7eb; box-shadow: 0 12px 32px rgba(15,23,42,.22); }
+.ip-icon { color: var(--brand, #c8102e); margin-bottom: 10px; animation: ip-bob 1.2s ease-in-out infinite; }
+.ip-bar { height: 14px; border-radius: 999px; background: #e5e7eb; overflow: hidden; box-shadow: inset 0 1px 2px rgba(0,0,0,.08); }
+.ip-bar i { display: block; height: 100%; width: 0; border-radius: 999px; background: linear-gradient(90deg, #c8102e, #f43f5e); background-image: repeating-linear-gradient(45deg, rgba(255,255,255,.28) 0 10px, rgba(255,255,255,0) 10px 20px), linear-gradient(90deg, #c8102e, #f43f5e); background-size: 28px 28px, 100% 100%; animation: ip-stripes .7s linear infinite; transition: width .25s ease; }
+.ip-pct { margin-top: 6px; font-size: 12px; font-weight: 700; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.ip-text { margin: 10px 0 2px; font-size: 15px; font-weight: 800; color: var(--ink); animation: ip-pulse 1.4s ease-in-out infinite; }
+.ip-stage { margin: 0; min-height: 16px; font-size: 11.5px; }
+@keyframes ip-stripes { from { background-position: 0 0, 0 0; } to { background-position: 28px 0, 0 0; } }
+@keyframes ip-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(4px); } }
+@keyframes ip-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) { .ip-icon, .ip-text, .ip-bar i { animation: none; } }

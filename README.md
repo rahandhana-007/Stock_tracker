@@ -12,8 +12,10 @@ forecast-netlify/
 ├─ package.json              # npm test / npm run build
 ├─ scripts/build-config.mjs  # tulis web/config.js dari environment variable Netlify
 ├─ supabase/
-│  ├─ schema.sql             # tabel, RLS, fungsi apply_changes / rollover_year / list_years
-│  └─ seed.sql               # 57 item + data FY2026 dari database SQLite lama
+│  ├─ schema.sql             # tabel, RLS, fungsi apply_changes / rollover_year / list_years / import_transactions
+│  ├─ 002_transactions.sql   # migrasi untuk proyek yang sudah jalan: tabel histori transaksi SAP
+│  ├─ seed.sql               # 57 item + forecast + Actual/Incoming SAP Jan–Sep 2026 (Sep parsial s/d 4 Sep)
+│  └─ seed_transactions.sql  # histori transaksi SAP Jan–Sep 2026 (2.087 baris, 39 item yang bergerak)
 ├─ web/                      # ← yang dipublikasikan Netlify (murni statis)
 │  ├─ index.html, styles.css, config.js
 │  ├─ js/calc.js             # perhitungan End Stock, KPI, status, dashboard (port calc.py)
@@ -25,6 +27,8 @@ forecast-netlify/
 └─ tests/
    ├─ unit.test.mjs          # cek silang kalkulasi & parser vs hasil Python
    ├─ local-server.mjs       # server uji lokal (PostgREST + auth tiruan)
+   ├─ bootstrap.sh           # pasang Postgres/PostgREST/Playwright + buat db uji "fc"
+   ├─ gen-seeds.mjs          # regenerasi seed.sql & seed_transactions.sql dari SQLite lama + file SAP
    └─ e2e_ui.py              # uji UI Playwright (login → edit → import → export → logout)
 ```
 
@@ -34,8 +38,11 @@ forecast-netlify/
 
 1. Buat proyek di <https://supabase.com/dashboard> (region Singapore paling dekat). Simpan **Database password**.
 2. **SQL Editor → New query** → tempel isi `supabase/schema.sql` → **Run**.
-   Lalu query baru → tempel `supabase/seed.sql` → **Run** (data 57 item FY2026 ikut masuk).
-   Kedua skrip aman dijalankan ulang.
+   Lalu query baru → tempel `supabase/seed.sql` → **Run** (data 57 item FY2026 ikut masuk),
+   dan `supabase/seed_transactions.sql` → **Run** (histori transaksi SAP Jan–Sep 2026).
+   Semua skrip aman dijalankan ulang.
+   *Proyek yang dibuat sebelum fitur histori:* cukup jalankan `supabase/002_transactions.sql`
+   lalu `seed_transactions.sql` (atau import ulang file SAP dari aplikasi).
 3. **Authentication → Sign In / Providers → Email**: provider Email harus **Enabled**
    (ini mesin login username+password — tidak ada email yang benar‑benar dikirim), lalu:
    * **Confirm email → OFF**
@@ -84,6 +91,24 @@ Buka alamat Netlify → halaman login → masuk dengan akun dari langkah 1.3.
 
 ---
 
+### Histori transaksi SAP (breakdown keluar/masuk per tanggal)
+Setiap import file **SAP Inventory Posting List** kini juga menyimpan baris transaksinya
+(tanggal, nomor dokumen, jenis, gudang, akun/partner, qty masuk/keluar, saldo SAP) ke tabel
+`transactions`, untuk item & bulan yang diimport (import ulang bulan yang sama akan menggantinya).
+Cara melihat: tombol **Histori** di kolom item, atau klik label baris **Actual Consumption**
+(barang keluar) / **Incoming** (barang masuk). Di dialog tersedia filter bulan & jenis,
+subtotal per bulan, dan tombol **Excel** untuk mengunduh daftarnya.
+
+### Bulan parsial (belum tutup buku)
+Import SAP secara bawaan mengambil **sampai bulan terakhir yang ada di file**, termasuk bulan yang
+masih berjalan (mis. September s/d tanggal 4). Batas tanggal data disimpan di `settings`
+(`sap_until_<tahun>`) sehingga:
+* header bulan itu diberi tanda **"s/d 4"** di grid dan "Stok saat ini" berlabel *(s/d 4 Sep)*;
+* End Stock & status stok memakai data parsial tersebut (kondisi stok terkini);
+* **variance / akurasi** tetap dihitung hanya sampai bulan yang sudah tutup, supaya forecast sebulan
+  penuh tidak dibandingkan dengan actual beberapa hari.
+Import file SAP berikutnya menimpa bulan tersebut dengan data yang lebih lengkap.
+
 ### Hak akses di tampilan
 * Nama user yang login tampil (huruf kapital) di kiri pilihan FY; klik untuk *Ganti password* / *Keluar*.
 * Menu **⋯** (rollover tahun, template, pengaturan judul, riwayat import) hanya tampil untuk username
@@ -104,6 +129,7 @@ Buka alamat Netlify → halaman login → masuk dengan akun dari langkah 1.3.
 | Edit sel / tempel baris / stok awal | endpoint PUT | RPC `apply_changes` / upsert `item_years` |
 | Rollover tahun | endpoint POST | RPC `rollover_year` |
 | Riwayat import | – | menu ⋯ → *Riwayat import* (tabel `import_logs`: siapa, kapan, file, hasil) |
+| Histori transaksi SAP | – | tombol *Histori* / klik label Actual & Incoming → daftar transaksi per tanggal (tabel `transactions`) |
 | Dokumentasi API `/docs` | ada | tidak ada (tidak ada API sendiri) |
 
 Perilaku yang dipertahankan: "kunci tidak dikirim = tidak diubah", `null` = kosongkan sel;
@@ -113,6 +139,9 @@ dari SAP mengikuti aturan kategori yang sama; item master yang UoM‑nya kosong 
 ## 4. Menjalankan uji
 
 ```bash
+# sekali jalan (Debian/Ubuntu): pasang Postgres + PostgREST + Playwright + node_modules, buat db "fc"
+bash tests/bootstrap.sh
+
 # unit test kalkulasi & parser (butuh node_modules xlsx/exceljs untuk simulasi browser)
 mkdir -p /tmp/vend && (cd /tmp/vend && npm i @supabase/supabase-js@2 xlsx@0.18.5 exceljs@4.4.0)
 VENDOR_NODE_MODULES=/tmp/vend/node_modules REF_JSON=path/ke/ref.json node tests/unit.test.mjs
