@@ -60,6 +60,7 @@
           <button data-act="history">Riwayat import…</button>
         </div>
       </div>
+      <button id="btnImportItems" class="btn" title="Tambah banyak item dari template Excel">Import Item Baru</button>
       <button id="btnAdd" class="btn primary">
         <svg viewBox="0 0 20 20" width="15" height="15"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
         Item Baru
@@ -158,6 +159,21 @@
   <datalist id="dlCategory"></datalist>
   <datalist id="dlUom"></datalist>
   <datalist id="dlUser"></datalist>
+</dialog>
+
+<!-- ===================== IMPORT ITEM BARU ===================== -->
+<dialog id="newItemsDialog" class="dlg wide">
+  <form id="newItemsForm" method="dialog">
+    <header><h2>Import Item Baru</h2><button type="button" class="x" data-close>&times;</button></header>
+    <div class="form-col">
+      <p>Unduh dan isi template Excel. <b>Hanya item dengan kode baru</b> yang ditambahkan; data item lama tidak diubah. Stok Awal Januari berlaku untuk FY yang sedang dipilih.</p>
+      <button type="button" class="btn" id="btnNewItemsTemplate">Download Format Excel Item Baru</button>
+      <label>File Excel (.xlsx)<input name="file" type="file" accept=".xlsx" required></label>
+      <div id="newItemsPreview" class="muted small" aria-live="polite">Pilih file untuk melihat hasil pemeriksaan.</div>
+    </div>
+    <p class="form-error" id="newItemsError" hidden></p>
+    <footer><span class="spacer"></span><button type="button" class="btn" data-close>Batal</button><button type="submit" class="btn primary" id="btnSaveNewItems" disabled>Import Item Baru</button></footer>
+  </form>
 </dialog>
 
 <!-- ===================== IMPORT DIALOG ===================== -->

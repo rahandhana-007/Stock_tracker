@@ -543,6 +543,111 @@
     } catch (e) { toast("Gagal menghapus: " + e.message, "err"); }
   }
 
+  // ------------------------------------------------------------------ bulk create of NEW item master records
+  const newItemsState = { rows: [], busy: false };
+  const NEW_ITEM_HEADERS = ["Kode Item", "Kategori", "Deskripsi Item", "UOM", "User / Dept", "Min Stock", "Max Stock", "Lead Time (hari)", "Stok Awal Januari"];
+  async function downloadNewItemsTemplate() {
+    try {
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet("Item Baru");
+      ws.addRow(NEW_ITEM_HEADERS);
+      ws.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+      ws.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC8102E" } };
+      ws.columns = [18, 24, 42, 15, 20, 16, 16, 20, 23].map(width => ({ width }));
+      ws.getColumn(1).numFmt = "@"; // preserve leading zeroes in item codes
+      ws.views = [{ state: "frozen", ySplit: 1 }];
+      const note = wb.addWorksheet("Petunjuk");
+      ["FORMAT IMPORT ITEM BARU", "Isi data mulai baris 2 pada sheet Item Baru. Jangan ubah judul kolom.",
+        "Wajib: Kode Item dan Deskripsi Item. Kode Item harus unik dan belum terdaftar.",
+        "Opsional: Kategori, UOM, User / Dept, Min Stock, Max Stock, Lead Time (hari), Stok Awal Januari.",
+        "Kolom angka kosong dianggap 0 (Lead Time kosong berarti tidak diisi). Gunakan angka tanpa pemisah ribuan.",
+        "Stok Awal Januari mengikuti FY yang dipilih di aplikasi saat import. Forecast/Actual/Incoming tidak diubah."]
+        .forEach(line => note.addRow([line]));
+      note.getColumn(1).width = 115;
+      downloadBlob(new Blob([await wb.xlsx.writeBuffer()], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), "Template_Import_Item_Baru.xlsx");
+    } catch (err) { toast("Template gagal: " + err.message, "err"); }
+  }
+  function openNewItemsDialog() {
+    $("#newItemsForm").reset();
+    newItemsState.rows = [];
+    $("#newItemsError").hidden = true;
+    $("#newItemsPreview").textContent = `Pilih file untuk FY ${state.year}.`;
+    $("#btnSaveNewItems").disabled = true;
+    $("#newItemsDialog").showModal();
+  }
+  function newItemNumber(value, label, row, integer = false) {
+    if (value === null || value === undefined || value === "") return integer ? null : 0;
+    const n = typeof value === "number" ? value : Number(String(value).trim());
+    if (!Number.isFinite(n) || (integer && !Number.isInteger(n)) || (label !== "Stok Awal Januari" && n < 0)) throw new Error(`Baris ${row}: ${label} harus angka ${integer ? "bulat " : ""}${label === "Stok Awal Januari" ? "" : "non-negatif"}.`);
+    return n;
+  }
+  async function inspectNewItems(file) {
+    newItemsState.rows = [];
+    $("#btnSaveNewItems").disabled = true;
+    $("#newItemsError").hidden = true;
+    if (!file) return;
+    $("#newItemsPreview").textContent = "Memeriksa file…";
+    try {
+      if (!/\.xlsx$/i.test(file.name)) throw new Error("Gunakan file .xlsx sesuai template Item Baru.");
+      const wb = await FC.master.readWorkbook(file);
+      if (!wb.SheetNames.includes("Item Baru")) throw new Error("Sheet 'Item Baru' tidak ditemukan. Unduh template yang tersedia.");
+      const rows = FC.master.sheetRows(wb, "Item Baru");
+      if (!NEW_ITEM_HEADERS.every((h, i) => String((rows[0] || [])[i] ?? "").trim() === h)) throw new Error("Judul kolom tidak sesuai template Item Baru. Jangan ubah header baris 1.");
+      const existing = new Set(state.items.map(it => String(it.code).trim().toLowerCase()));
+      const seen = new Set();
+      let skipped = 0;
+      const errors = [];
+      const candidates = [];
+      rows.slice(1).forEach((r, i) => {
+        if (!r || r.every(v => v === null || v === undefined || String(v).trim() === "")) return;
+        const row = i + 2, text = j => String(r[j] ?? "").trim();
+        const code = text(0), description = text(2);
+        if (!code || !description) { errors.push(`Baris ${row}: Kode Item dan Deskripsi Item wajib diisi.`); return; }
+        const key = code.toLowerCase();
+        if (seen.has(key)) { errors.push(`Baris ${row}: kode ${code} duplikat dalam file.`); return; }
+        seen.add(key);
+        if (existing.has(key)) { skipped++; return; }
+        try {
+          if (code.length > 40 || description.length > 300 || text(1).length > 80 || text(3).length > 20 || text(4).length > 80) throw new Error(`Baris ${row}: panjang teks melebihi batas kolom.`);
+          const body = { code, category: text(1), description, uom: text(3), user_dept: text(4),
+            min_stock: newItemNumber(r[5], "Min Stock", row), max_stock: newItemNumber(r[6], "Max Stock", row),
+            lead_time_days: newItemNumber(r[7], "Lead Time (hari)", row, true), opening_stock: newItemNumber(r[8], "Stok Awal Januari", row) };
+          if (body.max_stock && body.min_stock > body.max_stock) throw new Error(`Baris ${row}: Min Stock melebihi Max Stock.`);
+          candidates.push(body);
+        } catch (e) { errors.push(e.message); }
+      });
+      if (errors.length) throw new Error(errors.slice(0, 5).join(" ") + (errors.length > 5 ? ` (+${errors.length - 5} kesalahan lain)` : ""));
+      newItemsState.rows = candidates;
+      $("#newItemsPreview").textContent = `${candidates.length} item baru siap ditambahkan · ${skipped} kode sudah ada (dilewati) · FY ${state.year}. Data lama tidak ditimpa.`;
+      $("#btnSaveNewItems").disabled = !candidates.length;
+    } catch (err) { $("#newItemsPreview").textContent = "File belum siap diimport."; showFormError("#newItemsError", err.message); }
+  }
+  async function submitNewItems(e) {
+    e.preventDefault();
+    if (newItemsState.busy || !newItemsState.rows.length) return;
+    const year = state.year, rows = newItemsState.rows;
+    if (!await confirmDlg("Import Item Baru", `Tambahkan ${rows.length} item baru ke FY ${year}? Item lama tidak ditimpa.`, "Ya, import")) return;
+    newItemsState.busy = true;
+    const btn = $("#btnSaveNewItems"); btn.disabled = true;
+    let added = 0;
+    try {
+      for (const row of rows) {
+        try { await data().createItem(row, year); added++; }
+        catch (e) { throw new Error(`Gagal pada kode ${row.code}: ${e.message}. ${added} item sebelumnya sudah tersimpan.`); }
+        $("#newItemsPreview").textContent = `Menyimpan ${added}/${rows.length} item…`;
+      }
+      $("#newItemsDialog").close();
+      await loadItems(); await loadMeta();
+      toast(`${added} item baru berhasil ditambahkan`, "ok");
+    } catch (err) {
+      if (added) { await loadItems(); await loadMeta(); }
+      showFormError("#newItemsError", err.message);
+      $("#newItemsPreview").textContent = `${added}/${rows.length} item tersimpan. Periksa data lalu pilih ulang file bila ingin mencoba lagi.`;
+      newItemsState.rows = [];
+      $("#newItemsForm").elements.file.value = "";
+    } finally { newItemsState.busy = false; btn.disabled = !newItemsState.rows.length; }
+  }
+
   // ------------------------------------------------------------------ import / export / rollover / settings
   // ---- import wizard: analyse first, then apply with confirmed options ----
   const importState = { preview: null, file: null, parsed: null };
@@ -1222,6 +1327,10 @@
     });
 
     $("#btnAdd").addEventListener("click", () => openItemDialog());
+    $("#btnImportItems").addEventListener("click", openNewItemsDialog);
+    $("#btnNewItemsTemplate").addEventListener("click", downloadNewItemsTemplate);
+    $("#newItemsForm").elements.file.addEventListener("change", e => inspectNewItems(e.target.files[0]));
+    bindForm("#newItemsForm", submitNewItems);
     bindForm("#itemForm", submitItemForm);
     $("#btnDeleteItem").addEventListener("click", () => { const it = state.byId.get(+$("#itemForm").dataset.id); if (it) deleteItem(it); });
 
