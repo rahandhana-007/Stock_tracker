@@ -163,3 +163,19 @@ POSTGREST_BIN=/path/postgrest DB_URI=postgres://authenticator:secret@localhost/f
   connection string dari Project Settings → Database.
 * Memindahkan data terbaru dari aplikasi lama: `seed.sql` sudah memuat data SQLite terakhir. Bila
   nanti aplikasi lama masih dipakai, export Excel dari sana lalu import di aplikasi baru (format Master).
+
+## Detail PR Outstanding List / Goods Issued Status
+
+1. Di Supabase SQL Editor jalankan `supabase/003_pr_details.sql` satu kali.
+2. Pilih FY 2026, klik **Import Detail PR**, pilih file `.xlsx` hasil ekspor laporan. File sumber yang dianalisis: `PR Outstanding List 20260911 (M&S)`; ekspor Google Sheet-nya tersedia di workspace sebagai `PR_Outstanding_List_20260911_MS.xlsx`. Pratinjau menampilkan jumlah baris master yang cocok sebelum konfirmasi.
+3. Buka **Histori** sebuah item. Di bawah transaksi SO yang punya referensi SAP sesuai akan tersedia **Detail PR**. Referensi tanpa pasangan SO dicatat terpisah sebagai *belum terhubung*, bukan Actual baru.
+
+Alternatif untuk database baru setelah master seed: jalankan `supabase/seed_pr_details.sql` setelah migrasi; mengisi 1.616 baris dari 39 item master dan aman diulang. Skrip sumber: `python3 tests/gen-pr-seed.py /path/to/PR.xlsx` (memerlukan openpyxl). Jangan menjalankan seed sekaligus import file yang berbeda pada `source_key` sama jika nomor baris file berbeda. Detail PR **tidak mengubah** stok, Actual, forecast, atau transaksi SAP. Tanggal PR ditampilkan sebagai teks dari spreadsheet karena konversi format tanggal campuran perlu diverifikasi; gunakan tanggal posting SAP sebagai acuan periode histori.
+
+## Dashboard Budget System
+
+Dashboard FY kini memuat delapan wawasan PR di bawah KPI stok: nilai PR, per Cost Center, per Activity Code, item paling sering diminta, rekonsiliasi PR–SO, sebaran requestor, tren slip berdasarkan **tanggal posting SO SAP**, serta cost center pengguna item di bawah minimum. Klik ringkasan/ranking untuk memfilter tabel baris PR; klik kode item untuk membuka Histori. Kartu stok tetap menggunakan SAP. Total nilai menggunakan kolom Amount laporan PR, bukan nilai persediaan atau outstanding. Tren hanya menghitung PR yang referensinya cocok dengan SO pada histori SAP yang diimport. Semua metrik memerlukan migrasi `003_pr_details.sql` dan data PR; bila tabel belum tersedia, dashboard stok tetap dapat digunakan.
+
+## Analisa User Behavior (Dashboard)
+
+Klik **Analisa User Behavior** pada Dashboard untuk analisa on-demand pemakaian menurut cost center dan requestor (Budget System), item yang mendekati Min/habis, rekomendasi tanggal order dan qty ke target, serta kenaikan pemakaian dibanding tiga bulan sebelumnya. Istilah “user behavior” di sini adalah perilaku **penggunaan barang** menurut laporan PR, bukan pelacakan aktivitas login/klik pengguna web. Hanya PR yang punya nomor referensi SO pada histori SAP yang dipakai untuk atribusi pemakai; Actual/stok tetap dari SAP. Tanggal estimasi dihitung dari tanggal snapshot SAP (`sap_until_<FY>`), bukan otomatis dari hari ini. Rerata memakai paling banyak tiga bulan Actual lengkap terakhir; bulan parsial dikecualikan, laju harian memakai 30,44 hari/bulan. Estimasi tidak memperhitungkan incoming mendatang, perubahan pemakaian harian, maupun PO terbuka; cek stok terkini sebelum mengambil keputusan pembelian. Item tanpa data atau lead time tampil tanpa estimasi tanggal. Perubahan dashboard tidak menulis ke database.

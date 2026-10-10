@@ -272,7 +272,7 @@
       <div class="item-actions">
         <button class="link" data-act="edit" data-id="${it.id}">Edit</button>
         <button class="link danger" data-act="delete" data-id="${it.id}">Hapus</button>
-        <button class="link hist" data-act="history" data-id="${it.id}" title="Histori transaksi keluar/masuk dari SAP">Histori</button>
+        <button class="link hist" data-act="history" data-id="${it.id}" title="Buka riwayat transaksi dan detail pemakaian" aria-label="Buka histori item ${esc(it.code)}"><svg viewBox="0 0 20 20" width="12" height="12" aria-hidden="true"><path d="M3 9a7 7 0 1 1 1.8 5M3 4v5h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 5.5V10l3 1.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span>Histori</span></button>
       </div>
       <div class="stock-alert" role="alert" hidden>
         <svg viewBox="0 0 20 20" width="13" height="13" aria-hidden="true"><path d="M10 2.5l8 14H2l8-14z" fill="currentColor"/><path d="M10 8v4.2M10 14.3v.2" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></svg>
@@ -896,14 +896,47 @@
     finally { $("#btnDoImport").disabled = false; }
   }
 
+  // ------------------------------------------------------------------ PR detail import (not a stock movement)
+  let prImportRows = [], prBusy = false;
+  function openPRImport() {
+    $("#prImportForm").reset(); prImportRows=[];
+    $("#prImportSummary").textContent="Pilih file untuk memeriksa data.";
+    $("#prImportError").hidden=true; $("#btnSubmitPR").disabled=true;
+    $("#prImportDialog").showModal();
+  }
+  async function inspectPR(file) {
+    prImportRows=[]; $("#btnSubmitPR").disabled=true; $("#prImportError").hidden=true;
+    if(!file) return;
+    $("#prImportSummary").textContent="Memeriksa file PR…";
+    try {
+      if(!/\.xlsx$/i.test(file.name)) throw new Error("Gunakan file .xlsx (ekspor file .xls ke .xlsx terlebih dahulu).");
+      const wb=await FC.master.readWorkbook(file);
+      const result=FC.pr.parse(FC.master.sheetRows(wb,wb.SheetNames[0]),state.items);
+      prImportRows=result.rows.filter(r=>r.year===state.year);
+      if(!prImportRows.length) throw new Error(`Tidak ada baris PR untuk item yang terdaftar pada FY ${state.year}.`);
+      $("#prImportSummary").textContent=`${fmt(prImportRows.length)} baris PR cocok dengan kode item web app · ${fmt(result.unmatched)} baris kode di luar master (dilewati) · ${result.invalid} baris tidak valid. FY ${state.year}. Item lama dan angka stok tidak diubah.`;
+      $("#btnSubmitPR").disabled=false;
+    } catch(e) { $("#prImportSummary").textContent="File belum siap diimport."; showFormError("#prImportError",e.message); }
+  }
+  async function submitPR(e) {
+    e.preventDefault(); if(prBusy||!prImportRows.length) return;
+    if(!await confirmDlg("Import Detail PR",`Simpan ${fmt(prImportRows.length)} baris detail PR? Import ulang file yang sama akan memperbarui barisnya, bukan menggandakan. Stok tidak berubah.`,"Ya, import")) return;
+    prBusy=true; $("#btnSubmitPR").disabled=true;
+    try {
+      await data().importPR(prImportRows,(done,total)=>$("#prImportSummary").textContent=`Menyimpan detail PR ${fmt(done)}/${fmt(total)}…`);
+      $("#prImportDialog").close(); toast(`${fmt(prImportRows.length)} baris detail PR tersimpan`,"ok");
+    } catch(e) { showFormError("#prImportError",e.message+" Jika tabel belum ada, jalankan supabase/003_pr_details.sql di SQL Editor."); }
+    finally { prBusy=false; $("#btnSubmitPR").disabled=!prImportRows.length; }
+  }
+
   // ------------------------------------------------------------------ histori transaksi SAP
-  const txState = { item: null, rows: [], role: "", month: 0 };
+  const txState = { item: null, rows: [], pr: [], prError: "", role: "", month: 0, view: "sap", selectedPR: 0 };
   const ROLE_OF = (r) => (r.role === "actual" ? "out" : r.role === "incoming" || r.role === "return" ? "in" : r.role === "ignore" ? "ignore" : (r.rec_qty > 0 ? "in" : r.iss_qty > 0 ? "out" : "ignore"));
   const DOC_DESC = { SO: "Goods Issue", PD: "Goods Receipt PO", SI: "Stock In", PR: "Goods Return", IM: "Inventory Transfer", PU: "A/P Invoice", MR: "Revaluasi" };
   const fmtTxDate = (iso) => { const [y, m, d] = String(iso).split("-"); return `${d}/${m}/${y}`; };
 
   async function openTxDialog(it, { role = "", month = 0 } = {}) {
-    txState.item = it; txState.role = role; txState.month = month; txState.rows = [];
+    txState.item = it; txState.role = role; txState.month = month; txState.rows = []; txState.pr=[]; txState.prError=""; txState.view="sap"; txState.selectedPR=0;
     $("#txTitle").textContent = `${it.code} · ${it.description}`;
     $("#txSub").textContent = `Histori keluar/masuk dari SAP · FY ${state.year} · UoM ${it.uom || "–"} · stok awal ${fmt(it.opening_stock)}`;
     $("#txMonth").value = String(month); $("#txRole").value = role;
@@ -911,6 +944,8 @@
     $("#txDialog").showModal();
     try {
       txState.rows = await data().transactions(it.id, state.year);
+      try { txState.pr = await data().prDetails(it.id,state.year); if (txState.pr.length) txState.view="pr"; }
+      catch(e) { txState.prError = /pr_details|schema cache|does not exist/i.test(e.message) ? "Tabel detail PR belum dipasang (jalankan 003_pr_details.sql)." : e.message; }
       renderTx();
     } catch (e) {
       const missing = /transactions|schema cache|does not exist/i.test(e.message);
@@ -922,14 +957,55 @@
     return txState.rows.filter((r) => (!txState.month || r.month === txState.month) && (!txState.role || ROLE_OF(r) === txState.role));
   }
 
+  function renderPRView() {
+    const it=txState.item;
+    const so=txState.rows.filter(r=>r.doc_type==="SO" && (!txState.month || r.month===txState.month));
+    const visible=[];
+    for (const r of so) {
+      const ref=String(r.doc_no||"").match(/\d+/)?.[0];
+      const details=txState.pr.filter(p=>p.sap_ref && p.sap_ref===ref);
+      if(details.length) visible.push({r,ref,details});
+    }
+    const allRefs=new Set(txState.rows.filter(r=>r.doc_type==="SO").map(r=>String(r.doc_no||"").match(/\d+/)?.[0]));
+    const pending=txState.pr.filter(p=>!p.sap_ref || !allRefs.has(p.sap_ref));
+    if(txState.selectedPR>=visible.length)txState.selectedPR=0;
+    const summary=(name,value)=>`<div class="prv-stat"><small>${name}</small><strong>${value}</strong></div>`;
+    return `<div class="prv-wrap">
+      <div class="prv-banner"><b>Detail pendamping transaksi SO</b> · PR memberikan konteks pemakaian; kuantitasnya tidak dijumlah ulang ke Actual atau End Stock.</div>
+      <div class="prv-stats">${summary("SO dengan detail PR",fmt(visible.length)+" transaksi")}${summary("Baris PR item ini",fmt(txState.pr.length)+" baris")}${summary("Sumber Actual & saldo","Posting SAP")}</div>
+      <div class="prv-heading"><div><h3>Transaksi keluar${txState.month ? " · "+MONTHS[txState.month-1]+" "+state.year : " · FY "+state.year}</h3><small>Klik Lihat detail PR untuk melihat cost center, activity, dan peminta.</small></div></div>
+      ${visible.length?`<div class="prv-scroll"><table class="prv-table"><thead><tr><th>Tgl posting SAP</th><th>Referensi SO</th><th>Keluar</th><th>Status PR</th><th>Rincian</th></tr></thead><tbody>${visible.map(({r,ref,details},i)=>`<tr class="${i===txState.selectedPR?"selected":""}"><td>${fmtTxDate(r.posting_date)}</td><td class="prv-mono">SO ${esc(ref)}</td><td class="prv-qty">−${fmt(Number(r.iss_qty))} ${esc(it.uom||r.uom||"")}</td><td><span class="prv-badge">${details.length===1 && Math.abs(Number(details[0].sap_qty??details[0].quantity)-Number(r.iss_qty))<.001?"Kuantitas cocok":"Periksa kuantitas"}</span></td><td><button type="button" class="btn small prv-open" data-pr-index="${i}">Lihat detail PR →</button></td></tr>`).join("")}</tbody></table></div>`:`<div class="prv-empty">Belum ada SO dengan detail PR yang cocok${txState.month?" di bulan ini":""}. Cek tanggal cakupan Inventory Posting List dan nomor referensinya.</div>`}
+      ${pending.length?`<details class="prv-pending"><summary>${pending.length} baris PR belum terhubung ke SO · tidak dihitung sebagai Actual</summary><div class="prv-pending-list">${pending.slice(0,100).map(p=>`<p>${esc(p.slip_no)} / ${esc(p.line_no)} · ${esc(p.cost_center)} · ${fmt(Number(p.quantity))} ${esc(p.uom)} · ${esc(p.sap_ref||"tanpa referensi SAP")}</p>`).join("")}${pending.length>100?`<p>Menampilkan 100 dari ${pending.length} baris.</p>`:""}</div></details>`:""}
+      <p class="prv-footnote">Tanggal PR berasal dari format campuran dalam file sumber; periode pergerakan dan saldo selalu mengikuti tanggal posting SAP.</p>
+    </div>`;
+  }
+
+  function openPRDetail(index) {
+    const so=txState.rows.filter(r=>r.doc_type==="SO" && (!txState.month || r.month===txState.month));
+    const visible=so.map(r=>({r,ref:String(r.doc_no||"").match(/\d+/)?.[0]})).map(x=>({...x,details:txState.pr.filter(p=>p.sap_ref && p.sap_ref===x.ref)})).filter(x=>x.details.length);
+    const chosen=visible[index]; if(!chosen)return;
+    const it=txState.item;
+    const field=(name,value)=>`<div><small>${name}</small><b>${esc(value==null||value===""?"–":value)}</b></div>`;
+    $("#prDetailTitle").textContent=`Detail pemakaian · SO ${chosen.ref}`;
+    $("#prDetailSubtitle").textContent=`${it.code} · ${it.description} · posting SAP ${fmtTxDate(chosen.r.posting_date)}`;
+    $("#prDetailContent").innerHTML=`<div class="prv-banner"><b>Detail pendamping transaksi SO.</b> PR tidak dijumlah ulang ke Actual atau End Stock.</div>
+      <div class="prv-stats"><div class="prv-stat"><small>Keluar menurut SAP</small><strong>${fmt(Number(chosen.r.iss_qty))} ${esc(it.uom||chosen.r.uom||"")}</strong></div><div class="prv-stat"><small>Detail slip PR</small><strong>${chosen.details.length} baris</strong></div><div class="prv-stat"><small>Sumber saldo stok</small><strong>Posting SAP</strong></div></div>
+      <section class="prv-panel"><div class="prv-panel-head"><div><h3>Rincian slip pengeluaran</h3><p>Referensi SAP SO ${esc(chosen.ref)} · ${chosen.details.length} baris dari laporan PR</p></div><span class="prv-badge">${Math.abs(chosen.details.reduce((n,p)=>n+Number(p.sap_qty??p.quantity??0),0)-Number(chosen.r.iss_qty))<.001?"Kuantitas cocok":"Periksa kuantitas"}</span></div>
+      ${chosen.details.map(p=>`<div class="prv-entry"><div class="prv-entry-title"><b>Slip ${esc(p.slip_no)} / baris ${esc(p.line_no)}</b><span>${fmt(Number(p.sap_qty??p.quantity))} ${esc(p.uom||it.uom||"")}</span></div><div class="prv-fields">${field("Tanggal slip PR",p.pr_date)}${field("Order cost center",p.order_cost_center)}${field("Cost center",p.cost_center)}${field("Activity code",p.activity_code)}${field("Account code",p.account_code)}${field("Requestor",p.requestor)}${field("Nilai PR (informasi)",p.amount==null?"–":"Rp"+fmt(Number(p.amount)))}${field("Nilai outstanding (bukan qty)",p.outstanding_amount==null?"–":"Rp"+fmt(Number(p.outstanding_amount)))}</div></div>`).join("")}</section>
+      <p class="prv-footnote">Tanggal PR berasal dari format campuran file sumber; periode pergerakan dan saldo selalu mengikuti tanggal posting SAP.</p>`;
+    $("#prDetailDialog").showModal();
+  }
+
   function renderTx() {
     const it = txState.item, rows = txFiltered();
     const body = $("#txBody");
     if (!txState.rows.length) {
-      body.innerHTML = `<div class="tx-empty">Belum ada histori transaksi untuk item ini di FY ${state.year}.<br>Import file <b>SAP Inventory Posting List</b> lewat tombol Import — setiap baris transaksi (tanggal, nomor dokumen, qty, saldo) akan tersimpan di sini.</div>`;
+      body.innerHTML = `<div class="tx-empty">Belum ada histori SAP FY ${state.year}. Import file <b>SAP Inventory Posting List</b> untuk mencocokkan detail PR dengan SO.</div>${txState.pr.length ? `<div class="pr-pending"><b>${txState.pr.length} baris detail PR tersedia</b><p>Belum dapat dihubungkan karena histori SO belum ada. Tidak dihitung sebagai Actual.</p></div>` : ""}${txState.prError ? `<div class="pr-warning">${esc(txState.prError)}</div>` : ""}`;
       $("#txCount").textContent = ""; return;
     }
-    if (!rows.length) { body.innerHTML = `<div class="tx-empty">Tidak ada transaksi yang cocok dengan filter.</div>`; $("#txCount").textContent = `0 dari ${txState.rows.length} transaksi`; return; }
+    const tabs=txState.pr.length ? `<div class="prv-tabs"><button type="button" data-tx-view="pr" class="${txState.view==="pr"?"active":""}">Detail dari Budget System</button><button type="button" data-tx-view="sap" class="${txState.view==="sap"?"active":""}">Jurnal SAP</button></div>` : "";
+    if (txState.view==="pr" && txState.pr.length) { body.innerHTML=tabs+renderPRView(); $("#txCount").textContent=`${txState.pr.length} baris PR · ${txState.rows.length} transaksi SAP`; return; }
+    if (!rows.length) { body.innerHTML = tabs+`<div class="tx-empty">Tidak ada transaksi yang cocok dengan filter.</div>`; $("#txCount").textContent = `0 dari ${txState.rows.length} transaksi`; return; }
     let sumIn = 0, sumOut = 0, sumIgn = 0;
     const byMonth = new Map();
     for (const r of rows) { (byMonth.get(r.month) || byMonth.set(r.month, []).get(r.month)).push(r); }
@@ -957,7 +1033,7 @@
       trs.push(`<tr class="month-sum"><td colspan="5">Subtotal ${MONTHS[m - 1]}</td><td class="num in">${mIn ? fmt(mIn) : ""}</td><td class="num out">${mOut ? fmt(mOut) : ""}</td><td></td></tr>`);
     }
     const last = rows[rows.length - 1];
-    body.innerHTML = `
+    body.innerHTML = `${tabs}
       <div class="tx-summary">
         <span>Masuk (Incoming): <b>${fmt(sumIn)} ${esc(it.uom || "")}</b></span>
         <span>Keluar (Actual): <b>${fmt(sumOut)} ${esc(it.uom || "")}</b></span>
@@ -969,7 +1045,9 @@
         <colgroup><col class="c-date"><col class="c-doc"><col class="c-kind"><col class="c-whse"><col class="c-acct"><col class="c-num"><col class="c-num"><col class="c-num"></colgroup>
         <thead><tr><th>Tanggal</th><th>Dokumen</th><th>Jenis</th><th>Gudang</th><th>Akun / Partner</th><th class="num">Masuk</th><th class="num">Keluar</th><th class="num" title="Saldo menurut SAP setelah transaksi">Saldo SAP</th></tr></thead>
         <tbody>${trs.join("")}</tbody>
-      </table>`;
+      </table>
+      ${txState.prError ? `<div class="pr-warning">${esc(txState.prError)}</div>` : ""}
+      ${(() => { const refs=new Set(txState.rows.filter(r=>r.doc_type==="SO").map(r=>String(r.doc_no||"").match(/\d+/)?.[0])); const pending=txState.pr.filter(p=>!p.sap_ref || !refs.has(p.sap_ref)); return pending.length ? `<div class="pr-pending"><b>Detail PR belum terhubung ke SO (${pending.length} baris)</b><p>Referensi belum ada di Inventory Posting List yang diimport. Tidak dihitung sebagai Actual.</p><div class="pr-pending-list">${pending.slice(0,100).map(p=>`<div>${esc(p.slip_no)} / ${esc(p.line_no)} · ${esc(p.cost_center)} · ${fmt(Number(p.quantity))} ${esc(p.uom)} · ${esc(p.sap_ref||"tanpa referensi SAP")}</div>`).join("")}${pending.length>100?`<small>Menampilkan 100 baris pertama dari ${pending.length}.</small>`:""}</div></div>` : ""; })()}`;
     $("#txCount").textContent = `${rows.length} dari ${txState.rows.length} transaksi`;
   }
 
@@ -1035,6 +1113,95 @@
   }
 
   // ------------------------------------------------------------------ dashboard
+  // On-demand analysis of consumption by Budget System cost center/requestor.
+  const behaviorState={report:null,kind:"all",name:""};
+  const fmtAnalysisDate=iso=>iso?new Date(iso+"T12:00:00Z").toLocaleDateString("id-ID",{day:"numeric",month:"short",year:"numeric",timeZone:"UTC"}):"–";
+  function renderBehavior(){
+    const d=behaviorState.report,el=$("#behaviorContent");if(!d||!el)return;
+    const source=behaviorState.kind==="center"?d.byCenter:behaviorState.kind==="requestor"?d.byRequestor:[];
+    const selected=new Set();
+    if(behaviorState.name){
+      const map=behaviorState.kind==="center"?"cost_center":"requestor";
+      for(const p of d.linkedRows||[])if(String(p[map]||"Tidak disebutkan").trim()===behaviorState.name)selected.add(Number(p.item_id));
+    }
+    const items=d.results.filter(x=>!behaviorState.name||selected.has(Number(x.id)));
+    const urg=items.filter(x=>["empty","below","order"].includes(x.urgency));
+    const spikes=items.filter(x=>x.trend!==null&&x.trend>.2).sort((a,b)=>b.trend-a.trend);
+    const status={empty:"Stok habis / minus",below:"Di bawah Min",order:"Waktu order tercapai",watch:"Mendekati Min",normal:"Pantau"};
+    const badge=x=>`<span class="bh-status ${x.urgency}">${status[x.urgency]}</span>`;
+    const line=x=>`<tr><td><button class="bd-item" type="button" data-bh-item="${x.id}">${esc(x.code)}</button><small class="bh-desc">${esc(x.description)}</small></td><td>${badge(x)}</td><td class="num">${x.stock===null?"–":fmt(x.stock)} ${esc(x.uom||"")}</td><td class="num">${x.avg===null?"–":fmt(x.avg)} ${esc(x.uom||"")}/bln</td><td>${x.zeroDate?fmtAnalysisDate(x.zeroDate):"–"}</td><td>${x.orderDate?fmtAnalysisDate(x.orderDate):x.low?"Segera · stok ≤ Min":"–"}</td><td class="num">${x.qty===null||!x.qty?"–":fmt(x.qty)+" "+esc(x.uom||"")}</td><td>${esc(x.evidence)}</td></tr>`;
+    el.innerHTML=`<div class="bh-intro">Perkiraan berbasis <b>Actual SAP pada bulan lengkap</b> dan stok pada snapshot SAP. “Pengguna” berarti <b>cost center / requestor dalam Budget System</b>, bukan riwayat klik/login aplikasi. Tanggal habis dan restok adalah estimasi, bukan jadwal pasti.</div>
+      <div class="bh-metrics"><div><small>Snapshot SAP</small><b>${fmtAnalysisDate(d.anchor)}</b></div><div><small>Item perlu tindakan</small><b>${fmt(urg.length)}</b></div><div><small>Tren naik &gt;20%</small><b>${fmt(spikes.length)}</b></div><div><small>Baris PR terhubung SO</small><b>${fmt(d.linked)} / ${fmt(d.totalPR)}</b></div></div>
+      <div class="bh-panels"><section><h3>Pemakai terbanyak · Cost Center</h3><p>Jumlah slip terkait SO, bukan volume lintas UOM</p>${d.byCenter.slice(0,6).map(g=>`<button class="bh-rank" type="button" data-bh-group="center" data-bh-name="${esc(g.name)}"><b>${esc(g.name)}</b><span>${fmt(g.slips)} slip · ${fmt(g.items)} item</span></button>`).join("")||'<p class="muted small">Import detail PR untuk melihat pemakai.</p>'}</section><section><h3>Requestor paling aktif</h3><p>Gunakan sebagai konteks pemakaian, bukan penilaian individu</p>${d.byRequestor.slice(0,6).map(g=>`<button class="bh-rank" type="button" data-bh-group="requestor" data-bh-name="${esc(g.name)}"><b>${esc(g.name)}</b><span>${fmt(g.slips)} slip · ${fmt(g.items)} item</span></button>`).join("")||'<p class="muted small">Data requestor belum tersedia.</p>'}</section></div>
+      <div class="bh-filter"><label>Fokus pemakai <select id="behaviorGroup"><option value="all" ${behaviorState.kind==="all"?"selected":""}>Semua item</option><option value="center" ${behaviorState.kind==="center"?"selected":""}>Cost Center</option><option value="requestor" ${behaviorState.kind==="requestor"?"selected":""}>Requestor</option></select></label>${source.length?`<label>Nama <select id="behaviorName"><option value="">Semua ${behaviorState.kind==="center"?"Cost Center":"Requestor"}</option>${source.map(g=>`<option value="${esc(g.name)}" ${behaviorState.name===g.name?"selected":""}>${esc(g.name)}</option>`).join("")}</select></label>`:""}<span class="muted small">${fmt(items.length)} item${behaviorState.name?" · hanya item yang pernah dipakai oleh pilihan ini":""}</span></div>
+      <div class="bh-section"><h3>Prioritas restok <span class="muted small">${urg.length} item perlu tindak lanjut</span></h3>${urg.length?`<div class="bh-table-scroll"><table class="tbl bh-table"><thead><tr><th>Item</th><th>Status</th><th class="num">Stok</th><th class="num">Rerata Actual</th><th>Estimasi habis</th><th>Estimasi order</th><th class="num">Saran ke target</th><th>Keandalan</th></tr></thead><tbody>${urg.slice(0,60).map(line).join("")}</tbody></table></div>`:'<p class="muted small">Tidak ada item yang mencapai batas order menurut data yang tersedia.</p>'}</div>
+      <div class="bh-section"><h3>Perubahan pola penggunaan <span class="muted small">3 bulan lengkap terakhir dibanding 3 bulan sebelumnya</span></h3>${spikes.length?`<div class="bh-table-scroll"><table class="tbl bh-table"><thead><tr><th>Item</th><th class="num">Rerata sebelumnya</th><th class="num">Rerata terkini</th><th class="num">Perubahan</th><th>Pemakai utama (baris PR)</th></tr></thead><tbody>${spikes.slice(0,30).map(x=>`<tr><td><button class="bd-item" type="button" data-bh-item="${x.id}">${esc(x.code)}</button> ${esc(x.description)}</td><td class="num">${fmt(x.priorAvg)} ${esc(x.uom||"")}</td><td class="num">${fmt(x.avg)} ${esc(x.uom||"")}</td><td class="num bh-up">+${(x.trend*100).toFixed(0)}%</td><td>${esc(x.users[0]?.[0]||"Belum ada PR terhubung")}</td></tr>`).join("")}</tbody></table></div>`:'<p class="muted small">Belum ada kenaikan signifikan yang bisa dihitung dari bulan lengkap.</p>'}</div>
+      <details class="bh-all"><summary>Lihat estimasi seluruh item master (${fmt(d.results.length)})</summary><p class="muted small bh-all-note">Tabel ini menampilkan semua item yang dimuat pada FY ${state.year}, termasuk yang belum memiliki data Actual atau stok. Filter pemakai di atas hanya berlaku untuk daftar prioritas dan perubahan pola.</p><div class="bh-table-scroll"><table class="tbl bh-table"><thead><tr><th>Item</th><th>Status</th><th class="num">Stok</th><th class="num">Rerata Actual</th><th>Estimasi habis</th><th>Estimasi order</th><th class="num">Saran ke target</th><th>Keandalan</th></tr></thead><tbody>${d.results.map(line).join("")}</tbody></table></div></details>
+      <div class="bh-method"><b>Cara hitung:</b> rerata pemakaian = Actual SAP dari maksimum 3 bulan lengkap terakhir ÷ jumlah bulannya; estimasi habis = stok ÷ (rerata/30,44 hari); tanggal order = perkiraan saat stok mencapai Min dikurangi lead time. Saran qty = target Max (atau Min bila Max kosong) − stok. Incoming mendatang, variasi harian, dan pesanan yang belum diterima <b>tidak</b> diproyeksikan. Bila lead time / Actual / stok tidak tersedia, tanggal tidak ditampilkan. Snapshot SAP lama tidak mencerminkan stok hari ini.</div>`;
+  }
+  async function openBehaviorAnalysis(){
+    const year=state.year,dlg=$("#behaviorDialog");
+    $("#behaviorSubtitle").textContent=`FY ${year} · analisa on-demand dari SAP + Budget System`;
+    $("#behaviorContent").innerHTML='<div class="loading">Memindai pola penggunaan dan kebutuhan restok…</div>';
+    behaviorState.report=null;behaviorState.kind="all";behaviorState.name="";dlg.showModal();
+    try{
+      let pr=[],so=[];let prError="";
+      try{const res=await data().prDashboard(year);pr=res.pr;so=res.so;}catch(e){prError=e.message;}
+      if(!dlg.open||state.year!==year)return;
+      const report=FC.behavior.analyze(state.items,pr,so,state.sapUntil?.iso||null,state.sapUntil?.partial?state.sapUntil.month:null);
+      report.linkedRows=pr.filter(p=>p.sap_ref&&new Set(so.filter(x=>Number(x.item_id)===Number(p.item_id)).map(x=>String(x.doc_no||"").match(/\d+/)?.[0])).has(p.sap_ref));
+      behaviorState.report=report;renderBehavior();
+      if(prError){$("#behaviorContent").insertAdjacentHTML("afterbegin",`<div class="bh-error">Detail Budget System tidak dapat dimuat (${esc(prError)}). Analisa stok tetap tampil; kecocokan pemakai belum tersedia.</div>`);}
+    }catch(e){if(dlg.open)$("#behaviorContent").innerHTML=`<div class="bh-error">Analisa gagal: ${esc(e.message)}</div>`;}
+  }
+  // Budget System dashboard: amounts are PR values, never stock values.
+  const budgetView = { dataset: null, mode: "center", filter: "" };
+  const money = v => "Rp" + nf.format(Math.round(Number(v)||0));
+  const bdModes = { center:"Cost Center", activity:"Activity Code", item:"Item paling banyak diminta", requestor:"Requestor", unlinked:"PR belum terhubung", risk:"Item di bawah minimum" };
+  function budgetRowsFor(mode,filter) {
+    const d=budgetView.dataset;if(!d)return [];
+    if(mode==="unlinked")return d.unlinked;
+    if(mode==="risk")return d.rows.filter(r=>d.risk.some(x=>x.id===r.item_id));
+    const field={center:"cost_center",activity:"activity_code",requestor:"requestor",item:"item_id"}[mode];
+    return d.rows.filter(r=>!filter||String(field==="item_id"?r.item_id:(r[field]||"Tidak disebutkan"))===String(filter));
+  }
+  function renderBudgetDetail() {
+    const d=budgetView.dataset, box=$("#budgetDetail");if(!box||!d)return;
+    const mode=budgetView.mode,filter=budgetView.filter;
+    const rows=budgetRowsFor(mode,filter);
+    const options=mode==="center"?d.byCenter.map(x=>[x.name,x.name]):mode==="activity"?d.byActivity.map(x=>[x.name,x.name]):mode==="requestor"?d.byRequestor.map(x=>[x.name,x.name]):mode==="item"?d.byItem.map(x=>[x.id,`${x.code} · ${x.description}`]):[];
+    box.innerHTML=`<div class="bd-detail-head"><div><h3>Telusuri: ${bdModes[mode]}</h3><span class="muted small">${fmt(rows.length)} baris PR · ${money(rows.reduce((v,r)=>v+r.amount_num,0))} nilai Budget System</span></div><div class="bd-controls"><select id="bdMode" aria-label="Jenis rincian">${Object.entries(bdModes).map(([k,v])=>`<option value="${k}" ${k===mode?"selected":""}>${v}</option>`).join("")}</select>${options.length?`<select id="bdFilter" aria-label="Filter rincian"><option value="">Semua ${bdModes[mode]}</option>${options.map(([v,n])=>`<option value="${esc(v)}" ${String(v)===String(filter)?"selected":""}>${esc(n)}</option>`).join("")}</select>`:""}</div></div>
+      <div class="bd-table-scroll"><table class="tbl bd-table"><thead><tr><th>Item</th><th>Slip</th><th>Cost center</th><th>Activity</th><th>Requestor</th><th class="num">Qty PR</th><th class="num">Nilai PR</th><th>SAP</th></tr></thead><tbody>${rows.slice(0,150).map(r=>`<tr><td><button type="button" class="bd-item" data-bd-item="${r.item_id}">${esc(r.code)}</button></td><td>${esc(r.slip_no)} / ${esc(r.line_no??"–")}</td><td>${esc(r.cost_center||"–")}</td><td>${esc(r.activity_code||"–")}</td><td>${esc(r.requestor||"–")}</td><td class="num">${fmt(r.qty_num)} ${esc(r.uom||"")}</td><td class="num">${money(r.amount_num)}</td><td>${r.linked?`<span class="bd-ok">SO ${esc(r.sap_ref)}</span>`:`<span class="bd-warn">Belum terhubung${r.sap_ref?` · ${esc(r.sap_ref)}`:""}</span>`}</td></tr>`).join("")||`<tr><td colspan="8" class="muted">Tidak ada data pada pilihan ini.</td></tr>`}</tbody></table></div>${rows.length>150?`<p class="muted small">Menampilkan 150 dari ${fmt(rows.length)} baris. Gunakan filter untuk mempersempit.</p>`:""}`;
+  }
+  function budgetGroupTable(groups,mode){return `<div class="bd-list">${groups.slice(0,8).map((g,i)=>`<button type="button" class="bd-rank" data-bd-mode="${mode}" data-bd-filter="${esc(g.name)}"><span class="bd-rank-n">${i+1}</span><span class="bd-rank-label"><b>${esc(g.name)}</b><small>${fmt(g.slips)} slip · ${fmt(g.items)} item</small></span><strong>${money(g.amount)}</strong></button>`).join("")||'<p class="muted small">Belum ada data.</p>'}</div>`}
+  function renderBudgetSection(d){
+    const root=$("#budgetSection");if(!root)return;
+    const max=Math.max(1,...d.byMonth.map(x=>x.slips));
+    root.innerHTML=`<div class="bd-head"><div><span class="bd-eyebrow">BUDGET SYSTEM · FY ${state.year}</span><h2>Pemakaian & rekonsiliasi PR</h2><p>Detail permintaan berdasarkan laporan Goods Issued Status. Nilai PR bukan nilai persediaan SAP; kuantitas PR tidak dijumlah ulang ke Actual.</p></div><span class="bd-tag">${fmt(d.rows.length)} baris · ${fmt(d.byItem.length)} item master</span></div>
+      <div class="bd-kpis">
+      <button type="button" class="bd-kpi" data-bd-mode="center"><small>Nilai menurut Budget System</small><strong>${money(d.totalAmount)}</strong><span>Seluruh baris PR pada item master</span></button>
+      <button type="button" class="bd-kpi" data-bd-mode="item"><small>Item dengan permintaan PR</small><strong>${fmt(d.byItem.length)}</strong><span>${fmt(d.rows.length)} baris dari ${fmt(new Set(d.rows.map(x=>x.slip_no)).size)} slip</span></button>
+      <button type="button" class="bd-kpi bd-attention" data-bd-mode="unlinked"><small>PR belum terhubung ke SO</small><strong>${fmt(d.unlinked.length)}</strong><span>Perlu rekonsiliasi · bukan Actual baru</span></button>
+      <button type="button" class="bd-kpi bd-attention" data-bd-mode="risk"><small>Item di bawah minimum / nol</small><strong>${fmt(d.risk.length)}</strong><span>Memiliki pemakaian PR</span></button></div>
+      <div class="bd-grid">
+        <section class="bd-card"><h3>Pemakaian per Cost Center</h3><p>Ranking nilai PR · klik untuk rincian item & slip</p>${budgetGroupTable(d.byCenter,"center")}</section>
+        <section class="bd-card"><h3>Pemakaian per Activity Code</h3><p>Ranking nilai PR · kuantitas hanya dibandingkan per item</p>${budgetGroupTable(d.byActivity,"activity")}</section>
+        <section class="bd-card"><h3>Item paling banyak diminta</h3><p>Peringkat berdasarkan jumlah slip, bukan total kuantitas lintas UOM</p><div class="bd-list">${d.byItem.slice(0,8).map((x,i)=>`<button type="button" class="bd-rank" data-bd-mode="item" data-bd-filter="${x.id}"><span class="bd-rank-n">${i+1}</span><span class="bd-rank-label"><b>${esc(x.code)} · ${esc(x.description)}</b><small>${fmt(x.lines)} baris · ${fmt(x.centers)} cost center</small></span><strong>${fmt(x.slips)} slip</strong></button>`).join("")}</div></section>
+        <section class="bd-card"><h3>Sebaran Requestor</h3><p>Frekuensi slip dan nilai PR menurut peminta</p>${budgetGroupTable(d.byRequestor,"requestor")}</section>
+        <section class="bd-card bd-wide"><h3>Tren slip per bulan <span class="muted small">berdasarkan tanggal posting SO di SAP · hanya baris PR terhubung</span></h3><div class="bd-chart">${d.byMonth.map(x=>`<div class="bd-bar-col"><b>${x.slips||""}</b><div class="bd-bar-track"><i style="height:${x.slips?Math.max(4,x.slips/max*100):0}%" title="${MONTHS[x.month-1]}: ${fmt(x.slips)} slip · ${money(x.amount)} nilai PR"></i></div><small>${MONTHS[x.month-1]}</small></div>`).join("")}</div></section>
+        <section class="bd-card bd-wide"><h3>Cost Center pemakai item yang stoknya di bawah minimum</h3><p>Status stok tetap bersumber dari SAP. Klik item untuk membuka histori dan detail Budget System.</p><div class="bd-table-scroll"><table class="tbl bd-table"><thead><tr><th>Item</th><th>Status</th><th>Cost center pemakai</th><th class="num">Slip PR</th><th class="num">Nilai PR</th></tr></thead><tbody>${d.risk.map(x=>`<tr><td><button class="bd-item" type="button" data-bd-item="${x.id}">${esc(x.code)} · ${esc(x.description)}</button></td><td><span class="chip ${esc(x.status)}">${esc(STATUS_LABEL[x.status]||x.status)}</span></td><td>${esc(x.center_names.join(", "))}</td><td class="num">${fmt(x.slips)}</td><td class="num">${money(x.amount)}</td></tr>`).join("")||'<tr><td colspan="5" class="muted">Tidak ada item PR dengan stok di bawah minimum.</td></tr>'}</tbody></table></div></section>
+      </div><section class="bd-card bd-detail" id="budgetDetail"></section><p class="bd-source">Sumber: PR Outstanding List / Goods Issued Status untuk kode item master FY ${state.year}. Pencocokan SO menggunakan kode item + nomor referensi SAP. Tanggal PR pada file sumber bercampur format; tren menggunakan tanggal posting SAP. Outstanding adalah nilai uang, bukan sisa kuantitas.</p>`;
+    budgetView.dataset=d;renderBudgetDetail();
+  }
+  async function loadBudgetDashboard(year){
+    const root=$("#budgetSection");if(!root)return;
+    try{
+      const result=await data().prDashboard(year);
+      if(state.year!==year||state.view!=="dash")return;
+      if(!result.pr.length){root.innerHTML=`<div class="bd-empty"><h2>Budget System belum memiliki data FY ${year}</h2><p>Jalankan migrasi <code>supabase/003_pr_details.sql</code>, lalu import file PR melalui tombol <b>Import Detail PR</b>.</p></div>`;return;}
+      renderBudgetSection(FC.budgetDash.build(result.pr,result.so,state.items));
+    }catch(e){if(state.year===year&&state.view==="dash")root.innerHTML=`<div class="bd-empty"><h2>Detail Budget System belum tersedia</h2><p>${esc(e.message)}. Pastikan migrasi <code>003_pr_details.sql</code> sudah dijalankan dan histori SAP tersedia.</p></div>`;}
+  }
   async function renderDashboard() {
     const root = $("#dash");
     root.innerHTML = `<div class="loading">Memuat dashboard…</div>`;
@@ -1043,7 +1210,7 @@
     const k = d.kpi;
     const accTxt = k.avg_accuracy === null ? "–" : pct(k.avg_accuracy);
     root.innerHTML = `
-      <div class="dash-head"><h2>Dashboard FY ${d.year}</h2><span class="muted small">Status stok memakai End Stock bulan terakhir yang sudah ada data · Akurasi dihitung YTD (hanya bulan yang sudah ada actual${state.sapUntil && state.sapUntil.partial ? `; ${MONTHS[state.sapUntil.month - 1]} parsial s/d tgl ${state.sapUntil.day} tidak dihitung` : ""})</span></div>
+      <div class="dash-head"><h2>Dashboard FY ${d.year}</h2><span class="muted small">Status stok memakai End Stock bulan terakhir yang sudah ada data · Akurasi dihitung YTD (hanya bulan yang sudah ada actual${state.sapUntil && state.sapUntil.partial ? `; ${MONTHS[state.sapUntil.month - 1]} parsial s/d tgl ${state.sapUntil.day} tidak dihitung` : ""})</span><button type="button" class="btn primary bh-launch" id="btnBehaviorAnalysis">◉ &nbsp;Analisa User Behavior</button></div>
       <div class="kpis">
         ${kpiCard("Total item", k.total_items, `${k.with_forecast} ada forecast · ${k.with_actual} ada actual`, "", "")}
         ${kpiCard("Di bawah Min", k.below_min, "perlu order", k.below_min ? "red" : "green", "below_min")}
@@ -1061,7 +1228,9 @@
         ${d.over_max.length ? `<div class="card wide"><h3>Overstock <span class="muted">${d.over_max.length} item di atas Max</span></h3>${overMaxTable(d.over_max)}</div>` : ""}
         <div class="card wide"><h3>Akurasi terendah <span class="muted">10 item · hanya bulan yang punya forecast & actual yang dibandingkan</span></h3>${lowAccTable(d.low_accuracy)}</div>
         <div class="card wide"><h3>Heatmap End Stock per bulan <span class="muted">${d.heatmap.length} item dengan data stok</span></h3>${heatmap(d.heatmap)}</div>
-      </div>`;
+      </div><div id="budgetSection" class="budget-section"><div class="loading">Memuat detail Budget System…</div></div>`;
+    loadBudgetDashboard(state.year);
+    $("#btnBehaviorAnalysis").addEventListener("click",openBehaviorAnalysis);
 
     $$(".kpi-card.clickable", root).forEach((el) => el.addEventListener("click", () => {
       state.filters.status = el.dataset.status; $("#fStatus").value = el.dataset.status; switchView("grid"); renderGrid();
@@ -1335,6 +1504,9 @@
     $("#btnDeleteItem").addEventListener("click", () => { const it = state.byId.get(+$("#itemForm").dataset.id); if (it) deleteItem(it); });
 
     $("#btnImport").addEventListener("click", openImportDialog);
+    $("#btnImportPR").addEventListener("click", openPRImport);
+    $("#prImportForm").elements.file.addEventListener("change", e=>inspectPR(e.target.files[0]));
+    bindForm("#prImportForm", submitPR);
     bindForm("#importForm", submitImport);
     $("#importForm").elements.file.addEventListener("change", (e) => analyzeImportFile(e.target.files[0]));
     wireImportDropZone();
@@ -1344,7 +1516,29 @@
     bindForm("#passwordForm", submitPassword);
     $("#txMonth").addEventListener("change", (e) => { txState.month = +e.target.value; renderTx(); });
     $("#txRole").addEventListener("change", (e) => { txState.role = e.target.value; renderTx(); });
+    $("#behaviorContent").addEventListener("click",e=>{
+      const item=e.target.closest("[data-bh-item]");if(item){const it=state.byId.get(+item.dataset.bhItem);if(it){$("#behaviorDialog").close();openTxDialog(it);}return;}
+      const group=e.target.closest("[data-bh-group]");if(group){behaviorState.kind=group.dataset.bhGroup;behaviorState.name=group.dataset.bhName;renderBehavior();$("#behaviorContent").querySelector(".bh-filter")?.scrollIntoView({block:"nearest"});}
+    });
+    $("#behaviorContent").addEventListener("change",e=>{
+      if(e.target.id==="behaviorGroup"){behaviorState.kind=e.target.value;behaviorState.name="";renderBehavior();}
+      if(e.target.id==="behaviorName"){behaviorState.name=e.target.value;renderBehavior();}
+    });
+    $("#dash").addEventListener("click",e=>{
+      const item=e.target.closest("[data-bd-item]");if(item){const it=state.byId.get(+item.dataset.bdItem);if(it)openTxDialog(it);return;}
+      const rank=e.target.closest("[data-bd-mode]");if(rank){budgetView.mode=rank.dataset.bdMode;budgetView.filter=rank.dataset.bdFilter||"";renderBudgetDetail();$("#budgetDetail")?.scrollIntoView({behavior:"smooth",block:"nearest"});}
+    });
+    $("#dash").addEventListener("change",e=>{
+      if(e.target.id==="bdMode"){budgetView.mode=e.target.value;budgetView.filter="";renderBudgetDetail();}
+      if(e.target.id==="bdFilter"){budgetView.filter=e.target.value;renderBudgetDetail();}
+    });
     $("#btnTxExport").addEventListener("click", exportTx);
+    $("#txBody").addEventListener("click",e=>{
+      const tab=e.target.closest("[data-tx-view]");
+      if(tab){txState.view=tab.dataset.txView;renderTx();$("#txBody").scrollTop=0;return;}
+      const btn=e.target.closest("[data-pr-index]");
+      if(btn){txState.selectedPR=+btn.dataset.prIndex;openPRDetail(txState.selectedPR);}
+    });
     bindForm("#loginForm", submitLogin);
     if (window.FC_CONFIG && window.FC_CONFIG.PASSWORD_RESET) {
       $("#btnForgot").hidden = false;

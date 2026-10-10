@@ -183,10 +183,27 @@
     }
     return { inserted, deleted };
   }
+  async function prDashboard(year) {
+    const [pr, so] = await Promise.all([
+      fetchAll(() => client().from("pr_details").select("item_id,source_row,slip_no,line_no,pr_date,cost_center,order_cost_center,activity_code,requestor,quantity,uom,amount,outstanding_amount,sap_ref,sap_qty").eq("year",year).order("source_row")),
+      fetchAll(() => client().from("transactions").select("item_id,doc_no,iss_qty,posting_date").eq("year",year).eq("doc_type","SO").order("id"))
+    ]);
+    return {pr,so};
+  }
+  async function prDetails(itemId, year) {
+    return fetchAll(() => client().from("pr_details").select("*").eq("item_id",itemId).eq("year",year).order("source_row"));
+  }
+  async function importPR(rows, onProgress) {
+    for (let i=0;i<rows.length;i+=500) {
+      unwrap(await client().from("pr_details").upsert(rows.slice(i,i+500),{onConflict:"source_key,source_row"}));
+      if(onProgress) onProgress(Math.min(i+500,rows.length),rows.length);
+    }
+    return rows.length;
+  }
   async function importLogs(limit = 20) {
     return unwrap(await client().from("import_logs").select("*").order("created_at", { ascending: false }).limit(limit));
   }
 
   window.FC = window.FC || {};
-  window.FC.data = { configured, client, auth, meta, items, item, createItem, updateItem, deleteItem, applyChanges, setCell, setRow, setOpening, rollover, saveSettings, setSetting, logImport, importLogs, transactions, importTransactions };
+  window.FC.data = { configured, client, auth, meta, items, item, createItem, updateItem, deleteItem, applyChanges, setCell, setRow, setOpening, rollover, saveSettings, setSetting, logImport, importLogs, transactions, importTransactions, prDetails, importPR, prDashboard };
 })();

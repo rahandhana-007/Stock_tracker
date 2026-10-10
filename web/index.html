@@ -45,6 +45,7 @@
         <svg viewBox="0 0 20 20" width="15" height="15"><path d="M10 3v10m0 0l-4-4m4 4l4-4M4 16h12" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Import
       </button>
+      <button id="btnImportPR" class="btn" title="Impor detail Goods Issued Status PR">Import Detail PR</button>
       <button id="btnExport" class="btn" title="Export ke Excel">
         <svg viewBox="0 0 20 20" width="15" height="15"><path d="M10 13V3m0 0L6 7m4-4l4 4M4 16h12" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Export
@@ -307,6 +308,18 @@
   </form>
 </dialog>
 
+<!-- ===================== DETAIL PR IMPORT ===================== -->
+<dialog id="prImportDialog" class="dlg">
+  <form id="prImportForm" method="dialog">
+    <header><h2>Import Detail PR</h2><button type="button" class="x" data-close>&times;</button></header>
+    <div class="form-col"><p>Unggah PR Outstanding List / Goods Issued Status (.xlsx). Hanya baris dengan kode item yang sudah terdaftar disimpan. Data ini tidak mengubah Actual maupun stok.</p>
+      <label>File PR (.xlsx)<input type="file" name="file" accept=".xlsx" required></label>
+      <p id="prImportSummary" class="muted small">Pilih file untuk memeriksa data.</p></div>
+    <p id="prImportError" class="form-error" hidden></p>
+    <footer><span class="spacer"></span><button type="button" class="btn" data-close>Batal</button><button type="submit" id="btnSubmitPR" class="btn primary" disabled>Import Detail PR</button></footer>
+  </form>
+</dialog>
+
 <!-- ===================== HISTORI TRANSAKSI SAP ===================== -->
 <dialog id="txDialog" class="dlg wide tx-dlg">
   <form method="dialog">
@@ -337,6 +350,24 @@
   </form>
 </dialog>
 
+<!-- Detail pemakaian PR tampil dalam popup terpisah di atas Histori -->
+<!-- Analisa pola konsumsi oleh cost center/requestor + estimasi restok -->
+<dialog id="behaviorDialog" class="dlg wide behavior-dialog">
+  <div class="behavior-shell">
+    <header><div><div class="bh-eyebrow">ANALISA PENGGUNAAN BARANG</div><h2>Analisa User Behavior</h2><div class="muted small" id="behaviorSubtitle">Memindai pola penggunaan…</div></div><button type="button" class="x" data-close aria-label="Tutup">&times;</button></header>
+    <div id="behaviorContent" class="behavior-content"><div class="loading">Menganalisis…</div></div>
+    <footer><span class="spacer"></span><button type="button" class="btn" data-close>Tutup</button></footer>
+  </div>
+</dialog>
+
+<dialog id="prDetailDialog" class="dlg wide pr-detail-dlg">
+  <div class="pr-detail-modal">
+    <header><div><div class="pr-detail-eyebrow">DETAIL PEMAKAIAN PR</div><h2 id="prDetailTitle">Detail pemakaian</h2><p id="prDetailSubtitle" class="muted small"></p></div><button type="button" class="x" data-close aria-label="Tutup detail">&times;</button></header>
+    <div id="prDetailContent" class="pr-detail-content"></div>
+    <footer><span class="spacer"></span><button type="button" class="btn" data-close>Tutup</button></footer>
+  </div>
+</dialog>
+
 <dialog id="passwordDialog" class="dlg small">
   <form id="passwordForm" method="dialog">
     <header><h2>Ganti password</h2><button type="button" class="x" data-close>&times;</button></header>
@@ -356,6 +387,9 @@
 <script src="vendor/exceljs.min.js"></script>
 <script src="js/calc.js"></script>
 <script src="js/sap.js"></script>
+<script src="js/pr.js"></script>
+<script src="js/budget-dashboard.js"></script>
+<script src="js/behavior.js"></script>
 <script src="js/master.js"></script>
 <script src="js/data.js"></script>
 <script src="js/app.js"></script>
