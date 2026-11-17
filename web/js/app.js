@@ -317,7 +317,7 @@
       <div class="status-badge ${c.status}" title="${STATUS_LABEL[c.status]}">${STATUS_LABEL[c.status]}</div>
       <dl class="kpi-list">
         <dt>Stok saat ini</dt><dd>${fmt(c.current_stock)} ${upto}</dd>
-        <dt title="Rata-rata forecast per bulan">Avg/bln</dt><dd>${fmt(c.avg_forecast)}</dd>
+        <dt title="Total Actual pada ${c.actual_months_count} bulan lengkap yang memiliki data ÷ ${c.actual_months_count} bulan${c.partial_month ? `; ${MONTHS[c.partial_month - 1]} parsial dikecualikan` : ""}">Rata-rata Actual/bln</dt><dd>${fmt(c.avg_actual)}</dd>
         <dt>Peak</dt><dd>${c.peak_month ? `${MONTHS[c.peak_month - 1]} · ${fmt(c.peak_qty)}` : "–"}</dd>
         <dt title="Forecast pada ${c.months_compared} bulan yang sudah punya forecast & actual${c.partial_month ? ` (${MONTHS[c.partial_month - 1]} parsial tidak dihitung)` : ""}">Fcst YTD${c.partial_month ? `<small class="muted"> s/d ${MONTHS[c.partial_month - 2] || "–"}</small>` : ""}</dt><dd>${fmt(c.ytd_forecast)}</dd>
         <dt title="Actual − Forecast (${c.months_compared} bulan dibandingkan${c.partial_month ? `, ${MONTHS[c.partial_month - 1]} parsial tidak dihitung` : ""})">Var YTD</dt><dd class="${varCls}">${c.variance === null ? "–" : `${c.variance > 0 ? "+" : ""}${fmt(c.variance)} <small>(${pct(c.variance_pct)})</small>`}</dd>

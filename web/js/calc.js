@@ -57,6 +57,11 @@
     const lastDataMonth = dataIdx.length ? Math.max(...dataIdx) + 1 : null;
 
     const ytdActual = actualIdx.reduce((s, i) => s + num(months[i].actual), 0);
+    // Rata-rata Actual hanya bulan lengkap dengan data; angka 0 yang tercatat tetap dihitung.
+    const completeActualIdx = actualIdx.filter((i) => partial === null || partial === undefined || i + 1 !== partial);
+    const avgActual = completeActualIdx.length
+      ? completeActualIdx.reduce((s, i) => s + num(months[i].actual), 0) / completeActualIdx.length
+      : null;
     const totalIncoming = months.reduce((s, m) => s + num(m.incoming), 0);
 
     const cmpIdx = actualIdx.filter((i) => isNum(months[i].forecast) && (partial === null || partial === undefined || i + 1 !== partial));
@@ -98,6 +103,8 @@
       end_stock: endStock,
       fy_forecast: fyForecast,
       avg_forecast: avgForecast,
+      avg_actual: avgActual,
+      actual_months_count: completeActualIdx.length,
       peak_month: peakMonth,
       peak_qty: peakQty,
       ytd_actual: ytdActual,
