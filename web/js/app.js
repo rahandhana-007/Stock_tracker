@@ -233,9 +233,14 @@
     const monthCells = (field) => MONTHS.map((_, i) => {
       const m = i + 1;
       const v = it.months[i][field];
-      return `<td class="c-m ${m === cur ? "cur" : ""}"><input class="cell" type="text" inputmode="decimal" autocomplete="off"
-        data-id="${it.id}" data-f="${field}" data-m="${m}" value="${fmtDisp(fmtIn(v))}" data-raw="${fmtIn(v)}" placeholder="·" title="${ROW_LABEL[field]} ${MONTHS[i]}"></td>`;
+      const locked = field === "actual" || field === "incoming";
+      return `<td class="c-m ${m === cur ? "cur" : ""}"><input class="cell ${locked ? "locked-cell" : ""}" type="text" inputmode="decimal" autocomplete="off" ${locked ? "readonly aria-readonly=\"true\"" : ""}
+        data-id="${it.id}" data-f="${field}" data-m="${m}" value="${fmtDisp(fmtIn(v))}" data-raw="${fmtIn(v)}" placeholder="·" title="${locked ? "Terkunci — diisi melalui import SAP. " : ""}${ROW_LABEL[field]} ${MONTHS[i]}"></td>`;
     }).join("");
+
+    const lockedRowLabel = (field, role) => `<td class="c-label clickable" data-tx="${role}" data-id="${it.id}" title="Lihat histori barang ${role === "out" ? "keluar" : "masuk"} (SAP)"><div class="locked-row-label"><span class="locked-row-name">${ROW_LABEL[field]}</span></div></td>`;
+
+    const copyCell = (field) => `<td class="c-copy"><button type="button" class="row-copy" data-copy-field="${field}" data-id="${it.id}" title="Copy ${ROW_LABEL[field]} Jan–Des untuk Excel" aria-label="Copy ${ROW_LABEL[field]} Januari sampai Desember">Copy</button></td>`;
 
     const endCells = MONTHS.map((_, i) => `<td class="c-m end ${i + 1 === cur ? "cur" : ""}" data-m="${i + 1}"></td>`).join("");
 
@@ -244,11 +249,12 @@
         <td class="c-item" rowspan="4">${itemInfoHTML(it)}</td>
         <td class="c-label">${ROW_LABEL.forecast}</td>${monthCells("forecast")}
         <td class="c-total t-forecast" title="Total forecast setahun (FY)"></td>
+        <td class="c-copy"></td>
         <td class="c-kpi" rowspan="4"></td>
       </tr>
-      <tr class="r-actual"><td class="c-label clickable" data-tx="out" data-id="${it.id}" title="Lihat histori barang keluar (SAP)">${ROW_LABEL.actual}</td>${monthCells("actual")}<td class="c-total t-actual" title="Total actual (YTD)"></td></tr>
-      <tr class="r-incoming"><td class="c-label clickable" data-tx="in" data-id="${it.id}" title="Lihat histori barang masuk (SAP)">${ROW_LABEL.incoming}</td>${monthCells("incoming")}<td class="c-total t-incoming" title="Total incoming"></td></tr>
-      <tr class="r-end"><td class="c-label">${ROW_LABEL.end}</td>${endCells}<td class="c-total t-end" title="End Stock Desember"></td></tr>`;
+      <tr class="r-actual">${lockedRowLabel("actual", "out")}${monthCells("actual")}<td class="c-total t-actual" title="Total actual (YTD)"></td>${copyCell("actual")}</tr>
+      <tr class="r-incoming">${lockedRowLabel("incoming", "in")}${monthCells("incoming")}<td class="c-total t-incoming" title="Total incoming"></td>${copyCell("incoming")}</tr>
+      <tr class="r-end"><td class="c-label">${ROW_LABEL.end}</td>${endCells}<td class="c-total t-end" title="End Stock Desember"></td><td class="c-copy"></td></tr>`;
     updateComputed(tb, it);
     return tb;
   }
@@ -336,6 +342,7 @@
   }
 
   async function commitCell(input) {
+    if (input.readOnly || input.dataset.f === "actual" || input.dataset.f === "incoming") return;
     let value;
     try { value = parseNum(input.value); } catch (e) {
       toast(e.message, "err"); input.classList.add("error"); refreshInput(input); return;
@@ -405,7 +412,7 @@
     let fi = FIELDS.indexOf(input.dataset.f) + dir;
     let tb = input.closest("tbody.item");
     if (fi < 0) { tb = tb.previousElementSibling; fi = FIELDS.length - 1; }
-    if (fi >= FIELDS.length) { tb = tb.nextElementSibling; fi = 0; }
+    if (fi >= FIELDS.length || fi > 0) { tb = tb.nextElementSibling; fi = 0; }
     if (!tb || !tb.classList.contains("item")) return;
     focusCell(+tb.dataset.id, FIELDS[fi], m) || focusCell(id, input.dataset.f, m);
   }
@@ -417,6 +424,7 @@
   }
 
   async function handlePaste(input, text) {
+    if (input.readOnly || input.dataset.f !== "forecast") return false;
     const rows = text.replace(/\r/g, "").split("\n").filter((r, i, arr) => !(i === arr.length - 1 && r === ""));
     const grid = rows.map((r) => r.split("\t"));
     if (grid.length === 1 && grid[0].length === 1) return false; // plain single value → default paste
@@ -426,7 +434,7 @@
     try {
       let it = null;
       for (const cells of grid) {
-        if (fi >= FIELDS.length) break;
+        if (fi >= 1) break; // multi-line paste never writes locked Actual/Incoming
         const values = cells.slice(0, 13 - startM).map((s) => parseNum(s));
         it = await data().setRow(id, state.byId.get(id).code, state.year, FIELDS[fi], startM, values);
         fi++;
@@ -463,6 +471,7 @@
     wrap.addEventListener("paste", (e) => {
       const t = e.target;
       if (!t.classList.contains("cell")) return;
+      if (t.readOnly) { e.preventDefault(); return; }
       const text = (e.clipboardData || window.clipboardData).getData("text");
       if (/[\t\n]/.test(text.trim())) { e.preventDefault(); handlePaste(t, text); }
     });
@@ -476,7 +485,36 @@
       if (btn.dataset.act === "delete") deleteItem(it);
       if (btn.dataset.act === "history") openTxDialog(it, { role: "" });
     });
+    wrap.addEventListener("click", async (e) => {
+      const btn = e.target.closest("button[data-copy-field]");
+      if (!btn) return;
+      e.stopPropagation();
+      const it = state.byId.get(+btn.dataset.id), field = btn.dataset.copyField;
+      if (!it || !["actual", "incoming"].includes(field)) return;
+      const text = it.months.map(m => m[field] === null || m[field] === undefined ? "" : fmtIn(m[field])).join("\t");
+      let copied = false;
+      // Legacy copy is synchronous in the click gesture and works on browsers that block writeText.
+      const ta = document.createElement("textarea");
+      ta.value = text; ta.setAttribute("readonly", "");
+      ta.style.cssText = "position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;z-index:-1";
+      document.body.append(ta);
+      try { ta.focus(); ta.select(); ta.setSelectionRange(0, text.length); copied = !!document.execCommand("copy"); }
+      catch (_) { /* try modern API or offer manual selection */ }
+      finally { ta.remove(); }
+      if (!copied && navigator.clipboard?.writeText) {
+        try { await navigator.clipboard.writeText(text); copied = true; }
+        catch (_) { /* clipboard blocked by browser or preview iframe */ }
+      }
+      if (copied) toast(`${ROW_LABEL[field]} ${it.code} Jan–Des disalin (12 kolom)`, "ok");
+      else {
+        $("#copyFallbackTitle").textContent = `Copy ${ROW_LABEL[field]} · ${it.code} · Jan–Des`;
+        $("#copyFallbackText").value = text;
+        $("#copyFallbackDialog").showModal();
+        $("#copyFallbackText").focus(); $("#copyFallbackText").select();
+      }
+    });
     wrap.addEventListener("click", (e) => {
+      if (e.target.closest("button[data-copy-field]")) return;
       const td = e.target.closest("td.c-label[data-tx]");
       if (!td) return;
       const it = state.byId.get(+td.dataset.id);
@@ -1416,6 +1454,30 @@
     return email.toLowerCase().endsWith(suffix) ? email.slice(0, -suffix.length) : email;
   }
 
+  /** Show five seconds of progress, then a fetching popup while reload runs. */
+  function startLoginFlow() {
+    const overlay=$("#loginFlow"), progress=$("#loginFlowProgress"), popup=$("#loginFlowPopup");
+    const fill=$("#loginFlowFill"), label=$("#loginFlowPercent"), track=$("#loginFlowTrack");
+    let raf=0, active=true;
+    overlay.hidden=false;progress.hidden=false;popup.hidden=true;
+    fill.style.width="0%";label.textContent="0%";track.setAttribute("aria-valuenow","0");
+    const begin=performance.now();
+    const update=n=>{const v=Math.max(0,Math.min(100,Math.round(n)));fill.style.width=v+"%";label.textContent=v+"%";track.setAttribute("aria-valuenow",String(v));};
+    const tick=()=>{if(!active)return;update((performance.now()-begin)/5000*100);raf=requestAnimationFrame(tick);};
+    raf=requestAnimationFrame(tick);
+    return {
+      async progress(){
+        const remaining=Math.max(0,5000-(performance.now()-begin));
+        if(remaining)await new Promise(resolve=>setTimeout(resolve,remaining));
+        if(!active)return;
+        cancelAnimationFrame(raf);update(100);
+      },
+      fetching(){if(!active)return;progress.hidden=true;popup.hidden=false;},
+      async finish(){await new Promise(resolve=>setTimeout(resolve,700));active=false;cancelAnimationFrame(raf);overlay.hidden=true;},
+      cancel(){active=false;cancelAnimationFrame(raf);overlay.hidden=true;}
+    };
+  }
+
   async function submitLogin() {
     const form = $("#loginForm");
     const username = form.elements.email.value.trim();
@@ -1423,11 +1485,16 @@
     if (!username.includes("@") && !/^[a-z0-9._-]+$/i.test(username)) { showFormError("#loginError", "Username hanya boleh huruf, angka, titik, garis bawah, atau strip"); return; }
     $("#btnLogin").disabled = true;
     $("#loginError").hidden = true;
+    let flow;
     try {
       const res = await data().auth.signIn(toLoginEmail(username), form.elements.password.value);
       form.elements.password.value = "";
+      flow = startLoginFlow();
+      await flow.progress();
+      flow.fetching();
       await onSignedIn(res.session || (await data().auth.session()));
-    } catch (e) { showFormError("#loginError", e.message); }
+      await flow.finish();
+    } catch (e) { if(flow)flow.cancel(); showFormError("#loginError", e.message); }
     finally { $("#btnLogin").disabled = false; }
   }
 
@@ -1495,6 +1562,9 @@
       renderGrid();
     });
 
+    $("#copyFallbackSelect").addEventListener("click", () => {
+      const ta=$("#copyFallbackText"); ta.focus(); ta.select(); ta.setSelectionRange(0,ta.value.length);
+    });
     $("#btnAdd").addEventListener("click", () => openItemDialog());
     $("#btnImportItems").addEventListener("click", openNewItemsDialog);
     $("#btnNewItemsTemplate").addEventListener("click", downloadNewItemsTemplate);

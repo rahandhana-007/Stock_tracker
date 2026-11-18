@@ -103,7 +103,7 @@
         <colgroup>
           <col class="col-item"><col class="col-label">
           <col span="12">
-          <col class="col-total"><col class="col-kpi">
+          <col class="col-total"><col class="col-copy"><col class="col-kpi">
         </colgroup>
         <thead>
           <tr>
@@ -114,6 +114,7 @@
             <th class="c-m" data-m="7">Jul</th><th class="c-m" data-m="8">Agu</th><th class="c-m" data-m="9">Sep</th>
             <th class="c-m" data-m="10">Okt</th><th class="c-m" data-m="11">Nov</th><th class="c-m" data-m="12">Des</th>
             <th class="c-total">Total</th>
+            <th class="c-copy">Copy</th>
             <th class="c-kpi">Ringkasan</th>
           </tr>
         </thead>
@@ -379,6 +380,31 @@
     <footer><span class="spacer"></span><button type="button" class="btn" data-close>Batal</button><button type="submit" class="btn primary">Simpan</button></footer>
   </form>
 </dialog>
+
+<!-- Clipboard fallback for browsers/embedded previews that block writeText -->
+<dialog id="copyFallbackDialog" class="dlg small">
+  <div class="copy-fallback-content">
+    <header><h2 id="copyFallbackTitle">Copy Jan–Des</h2><button type="button" class="x" data-close aria-label="Tutup">&times;</button></header>
+    <p>Browser memblokir salin otomatis. Tekan <b>Pilih teks</b>, lalu gunakan menu <b>Salin</b> di perangkat Anda. Saat ditempel ke Excel, isinya menjadi 12 kolom Jan–Des.</p>
+    <label class="copy-fallback-label" for="copyFallbackText">Data dipisahkan dengan tab<textarea id="copyFallbackText" readonly spellcheck="false" rows="3"></textarea></label>
+    <footer><span class="spacer"></span><button type="button" class="btn" data-close>Tutup</button><button type="button" class="btn primary" id="copyFallbackSelect">Pilih teks</button></footer>
+  </div>
+</dialog>
+
+<!-- Two-stage login feedback, only after successful authentication -->
+<div id="loginFlow" class="login-flow" hidden role="status" aria-live="polite">
+  <div class="login-flow-progress" id="loginFlowProgress">
+    <div class="lf-mark" aria-hidden="true">✦</div>
+    <h2>Preparing &amp; calculating data</h2>
+    <div class="lf-bar" id="loginFlowTrack" role="progressbar" aria-label="Progres login" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="loginFlowFill"></i></div>
+    <div class="lf-percent" id="loginFlowPercent">0%</div>
+  </div>
+  <div class="login-flow-popup" id="loginFlowPopup" hidden>
+    <div class="lf-spinner" aria-hidden="true"></div>
+    <h2>Wait fetching you data</h2>
+    <p>Memuat item dan ringkasan stok…</p>
+  </div>
+</div>
 
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <script src="config.js"></script>
